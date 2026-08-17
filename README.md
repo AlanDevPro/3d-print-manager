@@ -48,3 +48,70 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+cotizador-3d/
+├── app/ # SOLO rutas (Expo Router) — la vista del usuario
+│ ├── (auth)/ # Grupo de rutas de autenticación
+│ │ ├── login.tsx
+│ │ └── \_layout.tsx
+│ ├── (tabs)/ # Tab Navigation principal
+│ │ ├── index.tsx # Home / Dashboard
+│ │ ├── cotizar.tsx # Cotización de impresiones 3D
+│ │ ├── comprobantes.tsx # Subida y gestión de comprobantes
+│ │ ├── materiales.tsx # Configuración de precios (filamentos, impresoras)
+│ │ └── \_layout.tsx
+│ └── \_layout.tsx # Layout raíz (Providers, Auth Guard, Theme)
+│
+├── src/ # TODA la lógica de negocio y presentación
+│ ├── assets/ # Imágenes, fuentes, íconos locales
+│ ├── components/ # Componentes UI reutilizables
+│ │ ├── ui/ # Botones, inputs, cards genéricos
+│ │ └── forms/ # Formularios de cotización, comprobantes, etc.
+│ │
+│ ├── config/ # Configuración global
+│ │ ├── env.ts # Variables de entorno tipadas
+│ │ └── constants.ts
+│ │
+│ ├── constants/ # Constantes estáticas (colores, dimensiones, roles)
+│ ├── context/ # Contextos globales (AuthContext, ThemeContext)
+│ │
+│ ├── features/ # Lógica organizada por módulos de dominio
+│ │ ├── auth/
+│ │ │ ├── hooks/
+│ │ │ ├── services/ # googleAuth.ts, session.ts
+│ │ │ └── types.ts
+│ │ ├── cotizacion/
+│ │ │ ├── hooks/
+│ │ │ ├── services/
+│ │ │ ├── utils/ # Fórmulas de cálculo de costos/tiempos
+│ │ │ └── types.ts
+│ │ ├── materiales/ # Filamentos, impresoras, tarifas energéticas
+│ │ │ ├── hooks/
+│ │ │ ├── services/
+│ │ │ └── types.ts
+│ │ └── comprobantes/
+│ │ ├── hooks/
+│ │ ├── services/ # Subida a Supabase Storage
+│ │ └── types.ts
+│ │
+│ ├── hooks/ # Hooks personalizados globales (e.g. useAuth)
+│ │
+│ ├── services/ # Clientes de servicios externos
+│ │ └── supabase/
+│ │ ├── client.ts # Inicialización del cliente Supabase
+│ │ ├── auth.ts # Métodos de autenticación
+│ │ ├── storage.ts # Métodos de buckets/archivos
+│ │ └── database.ts # Queries genéricas reutilizables
+│ │
+│ ├── theme/ # Tokens de diseño, colores, estilos globales
+│ ├── types/ # Tipos TypeScript globales (Database types de Supabase)
+│ └── utils/ # Helpers (formato de moneda, fechas, validaciones)
+│
+├── scripts/
+├── app.json
+├── eslint.config.js
+├── package.json
+├── tsconfig.json
+├── AGENTS.md
+├── CLAUDE.md
+└── README.md
