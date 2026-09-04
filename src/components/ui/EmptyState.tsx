@@ -1,43 +1,46 @@
+// src/components/ui/EmptyState.tsx
 import { useTheme } from "@/hooks/useTheme";
-import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-interface EmptyStateProps {
-  icono: keyof typeof Ionicons.glyphMap;
-  mensaje: string;
-}
-
-export const EmptyState = ({ icono, mensaje }: EmptyStateProps) => {
+export function EmptyState({
+  title,
+  description,
+}: {
+  title: string;
+  description?: string;
+}) {
   const { theme } = useTheme();
 
+  // Opción A: Proteger con Optional Chaining + Color de respaldo (Fallback)
+  const colorTextoSecundario = theme?.textSecondary ?? "#6B7280";
+  const colorTextoPrimario = theme?.textPrimary ?? "#111827";
+
   return (
-    <View
-      style={[
-        styles.container,
-        { backgroundColor: theme.bgSurface, borderColor: theme.border },
-      ]}
-    >
-      <Ionicons name={icono} size={22} color={theme.textMuted} />
-      <Text style={[styles.texto, { color: theme.textSecondary }]}>
-        {mensaje}
-      </Text>
+    <View style={styles.container}>
+      <Text style={[styles.title, { color: colorTextoPrimario }]}>{title}</Text>
+      {description && (
+        <Text style={[styles.description, { color: colorTextoSecundario }]}>
+          {description}
+        </Text>
+      )}
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
-    padding: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
+    padding: 24,
     alignItems: "center",
-    gap: 10,
-    marginVertical: 4,
+    justifyContent: "center",
   },
-  texto: {
-    fontSize: 13,
-    fontWeight: "500",
+  title: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  description: {
+    fontSize: 14,
+    marginTop: 4,
+    textAlign: "center",
   },
 });

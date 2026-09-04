@@ -1,21 +1,14 @@
 // src/features/parametros/hooks/useParametros.ts
-import {
-  guardarParametros,
-  obtenerParametros,
-} from "@/services/supabase/parametros";
 import { useCallback, useEffect, useState } from "react";
-import {
-  PARAMETROS_DEFAULT,
-  ParametrosOperativos,
-  SeccionParametros,
-} from "../types";
+import { parametrosService } from "../services/parametrosService";
+import { PARAMETROS_VACIOS, ParametrosOperativos } from "../types";
 
 interface UseParametrosResult {
   parametros: ParametrosOperativos | null;
   cargando: boolean;
   guardando: boolean;
   error: string | null;
-  actualizarSeccion: <K extends SeccionParametros>(
+  actualizarSeccion: <K extends keyof ParametrosOperativos>(
     seccion: K,
     valores: Partial<ParametrosOperativos[K]>,
   ) => void;
@@ -32,21 +25,49 @@ export function useParametros(userId: string | null): UseParametrosResult {
   const [error, setError] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
-    if (!userId) return;
+    console.log("🚀 [Hook Check] Entrando a cargar(). userId actual:", userId);
+
+    if (!userId) {
+      console.warn(
+        "⚠️ [Hook Warning] userId es NULL, UNDEFINED o VACÍO. No se invocará la BD.",
+      );
+      setCargando(false);
+      return;
+    }
+
     setCargando(true);
     setError(null);
+
     try {
-      const data = await obtenerParametros(userId);
+      console.log(
+        "📞 [Hook Exec] Invocando parametrosService.getParametros para userId:",
+        userId,
+      );
+      const data = await parametrosService.getParametros(userId);
+
+      console.log(
+        "🎉 [Hook Success] Datos recibidos con éxito en el Hook:",
+        data,
+      );
       setParametros(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error al cargar parámetros");
-      setParametros({ ...PARAMETROS_DEFAULT, userId });
+      console.error(
+        "💥 [Hook Error] Falló parametrosService.getParametros:",
+        e,
+      );
+      const msg = e instanceof Error ? e.message : "Error al cargar parámetros";
+      setError(msg);
+      // Fallback a estructura estrictamente VACÍA sin datos precargados
+      setParametros({ ...PARAMETROS_VACIOS, userId });
     } finally {
       setCargando(false);
     }
   }, [userId]);
 
   useEffect(() => {
+    console.log(
+      "🔄 [Hook Effect] Se ejecutó useEffect de useParametros. Re-evaluando dependencia userId...",
+    );
     cargar();
   }, [cargar]);
 
@@ -63,19 +84,30 @@ export function useParametros(userId: string | null): UseParametrosResult {
   }, []);
 
   const guardarCambios = useCallback(async () => {
-    if (!parametros) return;
+    if (!parametros || !userId) {
+      console.warn(
+        "⚠️ [Hook Warning] No se puede guardar: parametros o userId ausentes.",
+        { parametros, userId },
+      );
+      return;
+    }
+
     setGuardando(true);
     setError(null);
     try {
-      const actualizado = await guardarParametros(parametros);
-      setParametros(actualizado);
+      console.log("💾 [Hook Save] Invocando saveConfiguracion...");
+      await parametrosService.saveConfiguracion(userId, parametros);
+      console.log("✅ [Hook Save Success] Guardado exitoso en BD.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error al guardar parámetros");
+      console.error("💥 [Hook Save Error] Falló el guardado:", e);
+      const msg =
+        e instanceof Error ? e.message : "Error al guardar parámetros";
+      setError(msg);
       throw e;
     } finally {
       setGuardando(false);
     }
-  }, [parametros]);
+  }, [parametros, userId]);
 
   return {
     parametros,

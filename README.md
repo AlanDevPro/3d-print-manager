@@ -50,64 +50,108 @@ Join our community of developers creating universal apps.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
 
 cotizador-3d/
-├── app/ # SOLO rutas (Expo Router) — la vista del usuario
+├── app/ # SOLO rutas (Expo Router) - Presentación/Navegación
 │ ├── (auth)/ # Grupo de rutas de autenticación
 │ │ ├── login.tsx
 │ │ └── \_layout.tsx
 │ ├── (tabs)/ # Tab Navigation principal
-│ │ ├── index.tsx # Home / Dashboard
+│ │ ├── index.tsx # Dashboard / Home
 │ │ ├── cotizar.tsx # Cotización de impresiones 3D
 │ │ ├── comprobantes.tsx # Subida y gestión de comprobantes
-│ │ ├── materiales.tsx # Configuración de precios (filamentos, impresoras)
+│ │ ├── materiales.tsx # Configuración de materiales e impresoras
 │ │ └── \_layout.tsx
-│ └── \_layout.tsx # Layout raíz (Providers, Auth Guard, Theme)
+│ └── \_layout.tsx # Layout raíz (Providers globales, Auth Guard, Theme)
 │
-├── src/ # TODA la lógica de negocio y presentación
+├── src/ # TODA la lógica de negocio, dominio y presentación
 │ ├── assets/ # Imágenes, fuentes, íconos locales
-│ ├── components/ # Componentes UI reutilizables
-│ │ ├── ui/ # Botones, inputs, cards genéricos
-│ │ └── forms/ # Formularios de cotización, comprobantes, etc.
+│ ├── components/ # Componentes UI reutilizables de UI genérica
+│ │ ├── ui/ # Botones, inputs, cards, modales genéricos
+│ │ └── forms/ # Form Controls compartidos entre características
 │ │
-│ ├── config/ # Configuración global
+│ ├── config/ # Configuración global de la app
 │ │ ├── env.ts # Variables de entorno tipadas
 │ │ └── constants.ts
 │ │
 │ ├── constants/ # Constantes estáticas (colores, dimensiones, roles)
-│ ├── context/ # Contextos globales (AuthContext, ThemeContext)
 │ │
-│ ├── features/ # Lógica organizada por módulos de dominio
+│ ├── context/ # Contextos globales de la aplicación
+│ │ ├── AppDataProvider.tsx # Provider principal que envuelve la app post-login
+│ │ ├── AuthContext.tsx # Manejo de sesión de usuario y Supabase Auth
+│ │ ├── ThemeContext.tsx # Manejo de modo claro/oscuro
+│ │ ├── ConfiguracionTallerContext.tsx # Contexto para parámetros globales de taller
+│ │ └── EmpresaContext.tsx # Contexto de la información/perfil de la empresa
+│ │
+│ ├── features/ # Lógica de negocio modularizada por dominio
 │ │ ├── auth/
 │ │ │ ├── hooks/
 │ │ │ ├── services/ # googleAuth.ts, session.ts
 │ │ │ └── types.ts
+│ │ │
 │ │ ├── cotizacion/
+│ │ │ ├── components/ # UI específica de cotizaciones (Calculadora, Resumen)
 │ │ │ ├── hooks/
 │ │ │ ├── services/
-│ │ │ ├── utils/ # Fórmulas de cálculo de costos/tiempos
+│ │ │ ├── utils/ # Fórmulas matemáticas de cálculo de costos/tiempos
 │ │ │ └── types.ts
+│ │ │
 │ │ ├── materiales/ # Filamentos, impresoras, tarifas energéticas
+│ │ │ ├── components/
 │ │ │ ├── hooks/
 │ │ │ ├── services/
 │ │ │ └── types.ts
-│ │ └── comprobantes/
+│ │ │
+│ │ ├── comprobantes/
+│ │ │ ├── components/
+│ │ │ ├── hooks/
+│ │ │ ├── services/ # Gestor de buckets/Storage en Supabase
+│ │ │ └── types.ts
+│ │ │
+│ │ ├── empresa/ # Módulo de información y datos de la Empresa/Taller
+│ │ │ ├── components/
+│ │ │ ├── hooks/
+│ │ │ ├── mappers/ # Mapeo entre modelo Supabase DB y modelo UI
+│ │ │ │ └── empresaMapper.ts
+│ │ │ ├── services/ # Operaciones SELECT / UPSERT en Supabase
+│ │ │ │ └── empresaService.ts
+│ │ │ └── types.ts # EmpresaInfo (contrato de interfaz para UI)
+│ │ │
+│ │ ├── parametros/ # Parámetros operativos y costos indirectos de taller
+│ │ │ ├── components/
+│ │ │ ├── hooks/
+│ │ │ ├── mappers/
+│ │ │ ├── services/
+│ │ │ └── types.ts
+│ │ │
+│ │ ├── catalogo/ # Catálogo de productos/impresiones predefinidas
+│ │ │ ├── components/
+│ │ │ ├── hooks/
+│ │ │ ├── mappers/ # Mapeador de DB <-> UI para productos del catálogo
+│ │ │ ├── services/ # Consultas y mutaciones de catálogo
+│ │ │ └── types.ts
+│ │ │
+│ │ └── inventario/ # Gestión y control de stock de filamentos/insumos
+│ │ ├── components/
 │ │ ├── hooks/
-│ │ ├── services/ # Subida a Supabase Storage
+│ │ ├── mappers/ # Mapeador de DB <-> UI para stock e insumos
+│ │ ├── services/ # Gestión de stock y movimientos
 │ │ └── types.ts
 │ │
-│ ├── hooks/ # Hooks personalizados globales (e.g. useAuth)
+│ ├── hooks/ # Hooks personalizados globales utilitarios (e.g. useAuth)
 │ │
-│ ├── services/ # Clientes de servicios externos
+│ ├── services/ # Clientes base de servicios externos
 │ │ └── supabase/
-│ │ ├── client.ts # Inicialización del cliente Supabase
-│ │ ├── auth.ts # Métodos de autenticación
-│ │ ├── storage.ts # Métodos de buckets/archivos
-│ │ └── database.ts # Queries genéricas reutilizables
+│ │ ├── client.ts # Inicialización y configuración del cliente Supabase
+│ │ ├── auth.ts # Métodos transversales de auth
+│ │ ├── storage.ts # Helper genérico de buckets/archivos
+│ │ └── database.ts # Cliente base o helpers genéricos de BD
 │ │
-│ ├── theme/ # Tokens de diseño, colores, estilos globales
-│ ├── types/ # Tipos TypeScript globales (Database types de Supabase)
-│ └── utils/ # Helpers (formato de moneda, fechas, validaciones)
+│ ├── theme/ # Design tokens, paleta de colores, tipografía global
+│ ├── types/ # Tipos TypeScript compartidos o globales
+│ │ └── database.ts # Tipos crudos autogenerados de Supabase (Schema DB)
+│ │
+│ └── utils/ # Helpers globales (formato de moneda, fechas, sanitizadores)
 │
-├── scripts/
+├── scripts/ # Scripts de automatización / generación de tipos
 ├── app.json
 ├── eslint.config.js
 ├── package.json
@@ -115,3 +159,60 @@ cotizador-3d/
 ├── AGENTS.md
 ├── CLAUDE.md
 └── README.md
+
+SELECT
+c.table_name AS tabla,
+c.column_name AS columna,
+c.data_type AS tipo_dato,
+CASE WHEN pk.column_name IS NOT NULL THEN 'SI' ELSE 'NO' END AS es_pk,
+COALESCE(fk.tabla_destino, '-') AS referencia_tabla_fk,
+COALESCE(fk.columna_destino, '-') AS referencia_columna_fk
+FROM
+information_schema.columns c
+LEFT JOIN (
+-- Subconsulta para identificar Primary Keys
+SELECT
+tc.table_name,
+kc.column_name
+FROM
+information_schema.table_constraints tc
+JOIN
+information_schema.key_column_usage kc
+ON tc.constraint_name = kc.constraint_name
+AND tc.table_schema = kc.table_schema
+WHERE
+tc.constraint_type = 'PRIMARY KEY'
+AND tc.table_schema = 'public'
+) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name
+LEFT JOIN (
+-- Subconsulta para identificar Foreign Keys
+SELECT
+tc.table_name AS tabla_origen,
+kcu.column_name AS columna_origen,
+ccu.table_name AS tabla_destino,
+ccu.column_name AS columna_destino
+FROM
+information_schema.table_constraints tc
+JOIN
+information_schema.key_column_usage kcu
+ON tc.constraint_name = kcu.constraint_name
+AND tc.table_schema = kcu.table_schema
+JOIN
+information_schema.constraint_column_usage ccu
+ON ccu.constraint_name = tc.constraint_name
+AND ccu.table_schema = tc.table_schema
+WHERE
+tc.constraint_type = 'FOREIGN KEY'
+AND tc.table_schema = 'public'
+) fk ON c.table_name = fk.tabla_origen AND c.column_name = fk.columna_origen
+WHERE
+c.table_schema = 'public'
+AND c.table_name IN (
+'catalogo_productos', 'clientes', 'configuracion_empresa', 'cotizacion_items',
+'cotizaciones', 'egresos', 'empresa_miembros', 'empresas', 'filamentos',
+'impresoras', 'ingresos', 'metas_financieras', 'pedido_checklist_items',
+'pedido_eventos', 'pedido_pagos', 'pedidos', 'profiles', 'reglas_margen_ganancia'
+)
+ORDER BY
+c.table_name,
+c.ordinal_position;

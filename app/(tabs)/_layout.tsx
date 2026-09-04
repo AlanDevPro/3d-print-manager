@@ -1,4 +1,3 @@
-import { AppBar } from "@/components/ui/AppBar";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,7 +6,7 @@ import React from "react";
 import { ActivityIndicator, View } from "react-native";
 
 export default function TabsLayout() {
-  const { user, initialized } = useAuth();
+  const { initialized } = useAuth();
   const { theme } = useTheme();
 
   // Esperar a que Supabase recupere la sesión inicial antes de renderizar la UI
@@ -26,26 +25,10 @@ export default function TabsLayout() {
     );
   }
 
-  // Extraer metadata personalizada almacenada en Supabase Auth
-  const userMetadata = user?.user_metadata ?? {};
-
-  const logoUri = userMetadata.taller_logo_url ?? userMetadata.tallerLogoUrl;
-  const avatarUri = userMetadata.avatar_url ?? userMetadata.avatarUrl;
-  const nombreTaller =
-    userMetadata.nombre_taller ?? userMetadata.tallerNombre ?? "Mi Taller 3D";
-
   return (
     <Tabs
       screenOptions={{
-        headerShown: true,
-        header: () => (
-          <AppBar
-            userId={user?.id ?? null}
-            logoUri={logoUri}
-            avatarUri={avatarUri}
-            nombreTaller={nombreTaller}
-          />
-        ),
+        headerShown: false,
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textSecondary || theme.textMuted,
         tabBarStyle: {

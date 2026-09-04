@@ -1,138 +1,186 @@
 import { useAuth } from "@/features/auth/hooks/useAuth";
-import {
-  getConfiguracionUsuario,
-  getImpresorasActivas,
-  getMaterialesActivos,
-  getReglasMargenGanancia, // <-- Asegúrate de tener este servicio en tu API
-} from "@/features/materiales/services/materialesService";
+import { useClientes } from "@/features/clientes/hooks/useClientes";
+import { useMaterialesTaller } from "@/features/materiales/hooks/useMaterialesTaller";
 import { useCallback, useEffect, useState } from "react";
 import { guardarCotizacion } from "../services/cotizacionService";
-import {
-  ConfiguracionUsuario,
+import type {
   CotizarFormState,
-  Impresora,
-  Material,
-  ReglaMargenGanancia,
+  PiezaFormState,
   ResultadoCotizacion,
 } from "../types";
 import { calcularCotizacion } from "../utils/calcularCotizacion";
 
 const initialForm: CotizarFormState = {
-  cliente_nombre: "",
-  cliente_contacto: "",
-  nombre_pieza: "",
-  cantidad: "1",
-  peso_gramos: "",
-  tiempo_impresion_horas: "",
-  tiempo_impresion_minutos: "0",
-  tiempo_preparacion_minutos: "15",
-  tiempo_postprocesado_minutos: "0",
+  cliente_id: "",
+  nombre_cliente: "",
+  telefono_cliente: "",
   impresora_id: "",
-  material_id: "",
-  margen_ganancia_pct: "", // Dejar en blanco para que la BD aplique la regla por escala
+  filamento_id: "",
+  regla_margen_id: "",
+  margen_ganancia_pct: "",
   porcentaje_riesgo: "0",
   precio_personalizacion: "0",
   precio_mayorista: "",
   precio_minorista: "",
+  tiempo_preparacion_minutos: "15",
+  tiempo_postprocesado_minutos: "0",
   imagen_referencia: "",
   notas: "",
 };
 
+const crearPiezaVacia = (numero: number): PiezaFormState => ({
+  id: `pieza_${Date.now()}_${numero}`,
+  nombre_pieza: "",
+  peso_gramos: "",
+  cantidad: "1",
+  tiempo_impresion_horas: "",
+  tiempo_impresion_minutos: "0",
+});
+
 export function useCotizacion() {
   const { user } = useAuth();
 
+  const {
+    empresaId,
+    materiales: filamentos,
+    impresoras,
+    configuracion: config,
+    reglasMargen,
+    cargando: cargandoTaller,
+    error: errorTaller,
+    recargar: recargarTaller,
+  } = useMaterialesTaller();
+
+  const {
+    clientes,
+    cargando: cargandoClientes,
+    crearCliente,
+    buscarPorTelefono,
+    recargar: recargarClientes,
+  } = useClientes();
+
   const [form, setForm] = useState<CotizarFormState>(initialForm);
-  const [impresoras, setImpresoras] = useState<Impresora[]>([]);
-  const [materiales, setMateriales] = useState<Material[]>([]);
-  const [config, setConfig] = useState<ConfiguracionUsuario | null>(null);
-  const [reglasMargen, setReglasMargen] = useState<ReglaMargenGanancia[]>([]);
+  const [piezas, setPiezas] = useState<PiezaFormState[]>([crearPiezaVacia(1)]);
+  const [piezaActivaId, setPiezaActivaId] = useState<string>(piezas[0].id);
   const [resultado, setResultado] = useState<ResultadoCotizacion | null>(null);
 
-  const [cargandoDatos, setCargandoDatos] = useState(true);
-  const [calculando, setCalculando] = useState(false);
-  const [guardando, setGuardando] = useState(false);
+  const [calculando, setCalculando] = useState<boolean>(false);
+  const [guardando, setGuardando] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const cargarDatosBase = useCallback(async () => {
-    if (!user) return;
-    setCargandoDatos(true);
-    setError(null);
-    try {
-      // Cargar en paralelo impresoras, materiales, config y reglas de margen por escala
-      const [imps, mats, cfg, reglas] = await Promise.all([
-        getImpresorasActivas(user.id),
-        getMaterialesActivos(user.id),
-        getConfiguracionUsuario(user.id),
-        getReglasMargenGanancia(user.id), // Fetch a public.reglas_margen_ganancia
-      ]);
-
-      setImpresoras(imps);
-      setMateriales(mats);
-      setConfig(cfg);
-      setReglasMargen(reglas || []);
-
-      setForm((prev) => ({
-        ...prev,
-        impresora_id: imps[0]?.id ?? "",
-        material_id: mats[0]?.id ?? "",
-        margen_ganancia_pct: "", // Queda vacío para dar prioridad a la tabla reglas_margen_ganancia
-      }));
-    } catch (e: any) {
-      setError(e.message ?? "Error cargando datos base");
-    } finally {
-      setCargandoDatos(false);
-    }
-  }, [user]);
+  useEffect(() => {
+    if (errorTaller) setError(errorTaller);
+  }, [errorTaller]);
 
   useEffect(() => {
-    cargarDatosBase();
-  }, [cargarDatosBase]);
+    setForm((prev) => ({
+      ...prev,
+      impresora_id: prev.impresora_id || (impresoras[0]?.id ?? ""),
+      filamento_id: prev.filamento_id || (filamentos[0]?.id ?? ""),
+    }));
+  }, [impresoras, filamentos]);
 
-  const updateField = (field: keyof CotizarFormState, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+  const updateField = useCallback(
+    (field: keyof CotizarFormState, value: string) => {
+      setForm((prev) => {
+        if (
+          (field === "nombre_cliente" || field === "telefono_cliente") &&
+          prev.cliente_id
+        ) {
+          return { ...prev, [field]: value, cliente_id: "" };
+        }
+        return { ...prev, [field]: value };
+      });
+      setResultado(null);
+    },
+    [],
+  );
+
+  const updatePiezaField = useCallback(
+    (id: string, field: keyof Omit<PiezaFormState, "id">, value: string) => {
+      setPiezas((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)),
+      );
+      setResultado(null);
+    },
+    [],
+  );
+
+  const agregarPieza = useCallback(() => {
+    setPiezas((prev) => {
+      const nueva = crearPiezaVacia(prev.length + 1);
+      setPiezaActivaId(nueva.id);
+      return [...prev, nueva];
+    });
     setResultado(null);
-  };
+  }, []);
 
-  const validar = (): string | null => {
-    if (!form.material_id) return "Selecciona un material";
-    if (!Number(form.peso_gramos) || Number(form.peso_gramos) <= 0)
-      return "Ingresa un peso válido (g)";
-    if (!Number(form.cantidad) || Number(form.cantidad) <= 0)
-      return "Ingresa una cantidad válida";
+  const eliminarPieza = useCallback(
+    (id: string) => {
+      setPiezas((prev) => {
+        if (prev.length <= 1) return prev;
+        const idx = prev.findIndex((p) => p.id === id);
+        const nuevas = prev.filter((p) => p.id !== id);
+        if (piezaActivaId === id) {
+          const nuevoIdx = Math.max(0, idx - 1);
+          setPiezaActivaId(nuevas[nuevoIdx].id);
+        }
+        return nuevas;
+      });
+      setResultado(null);
+    },
+    [piezaActivaId],
+  );
 
-    const horas = Number(form.tiempo_impresion_horas) || 0;
-    const minutos = Number(form.tiempo_impresion_minutos) || 0;
-    if (horas <= 0 && minutos <= 0) {
-      return "Ingresa un tiempo de impresión válido (horas o minutos)";
-    }
+  const seleccionarPieza = useCallback((id: string) => {
+    setPiezaActivaId(id);
+  }, []);
 
+  const validar = useCallback((): string | null => {
+    if (!form.filamento_id) return "Selecciona un filamento";
     if (!form.impresora_id) return "Selecciona una impresora";
+    if (piezas.length === 0) return "Agrega al menos una pieza";
+
+    for (let i = 0; i < piezas.length; i++) {
+      const p = piezas[i];
+      const etiqueta = p.nombre_pieza?.trim() || `Pieza ${i + 1}`;
+      if (!Number(p.peso_gramos) || Number(p.peso_gramos) <= 0) {
+        return `${etiqueta}: ingresa un peso válido (g)`;
+      }
+      if (!Number(p.cantidad) || Number(p.cantidad) <= 0) {
+        return `${etiqueta}: ingresa una cantidad válida`;
+      }
+      const horas = Number(p.tiempo_impresion_horas) || 0;
+      const minutos = Number(p.tiempo_impresion_minutos) || 0;
+      if (horas <= 0 && minutos <= 0) {
+        return `${etiqueta}: ingresa un tiempo de impresión válido`;
+      }
+    }
     return null;
-  };
+  }, [form.filamento_id, form.impresora_id, piezas]);
 
-  const obtenerTiempoImpresionHorasTotal = (): number => {
-    const horas = Number(form.tiempo_impresion_horas) || 0;
-    const minutos = Number(form.tiempo_impresion_minutos) || 0;
-    return horas + minutos / 60;
-  };
-
-  const calcular = () => {
+  const calcular = useCallback(() => {
     if (!config) return;
+
     const errorValidacion = validar();
     if (errorValidacion) {
       setError(errorValidacion);
       return;
     }
+
     setError(null);
     setCalculando(true);
 
     try {
-      const impresora = impresoras.find((i) => i.id === form.impresora_id)!;
-      const material = materiales.find((m) => m.id === form.material_id)!;
-      const tiempoImpresionTotal = obtenerTiempoImpresionHorasTotal();
+      const impresora = impresoras.find((i) => i.id === form.impresora_id);
+      const filamento = filamentos.find((f) => f.id === form.filamento_id);
 
-      // EVALUACIÓN EXPLÍCITA DEL OVERRIDE MANUAL
-      // Se pasa a número únicamente si el usuario escribió manualmente un margen en la UI.
+      if (!impresora || !filamento) {
+        throw new Error(
+          "No se encontró la impresora o el filamento seleccionado.",
+        );
+      }
+
       const esMargenManualValido =
         form.margen_ganancia_pct !== "" &&
         form.margen_ganancia_pct !== null &&
@@ -146,20 +194,23 @@ export function useCotizacion() {
 
       const res = calcularCotizacion(
         {
-          nombre_pieza: form.nombre_pieza || "Pieza 3D",
-          cantidad: Number(form.cantidad),
-          peso_gramos: Number(form.peso_gramos),
-          tiempo_impresion_horas: tiempoImpresionTotal,
-          tiempo_preparacion_minutos: Number(
-            form.tiempo_preparacion_minutos || 0,
-          ),
+          piezas: piezas.map((p) => ({
+            id: p.id,
+            nombre_pieza: p.nombre_pieza || "Pieza 3D",
+            cantidad: Number(p.cantidad),
+            peso_gramos: Number(p.peso_gramos),
+            tiempo_impresion_horas: Number(p.tiempo_impresion_horas) || 0,
+            tiempo_impresion_minutos: Number(p.tiempo_impresion_minutos) || 0,
+          })),
+          tiempo_preparacion_minutos: Number(form.tiempo_preparacion_minutos || 0),
           tiempo_postprocesado_minutos: Number(
             form.tiempo_postprocesado_minutos || 0,
           ),
           impresora,
-          material,
+          filamento,
           porcentaje_riesgo: Number(form.porcentaje_riesgo || 0),
           precio_personalizacion: Number(form.precio_personalizacion || 0),
+          regla_margen_id: form.regla_margen_id,
           precio_mayorista: form.precio_mayorista
             ? Number(form.precio_mayorista)
             : undefined,
@@ -168,70 +219,117 @@ export function useCotizacion() {
             : undefined,
         },
         config,
-        reglasMargen, // Matriz traída desde public.reglas_margen_ganancia
-        margenOverride, // undefined por defecto para dejar actuar a las reglas
+        reglasMargen,
+        margenOverride,
       );
 
       setResultado(res);
-    } catch (e: any) {
-      setError(e.message ?? "Error al calcular la cotización");
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error ? e.message : "Error al calcular la cotización";
+      setError(msg);
     } finally {
       setCalculando(false);
     }
-  };
+  }, [config, form, piezas, impresoras, filamentos, reglasMargen, validar]);
 
-  const guardar = async () => {
-    if (!user || !resultado) return;
-    setGuardando(true);
-    setError(null);
-    try {
-      const impresora = impresoras.find((i) => i.id === form.impresora_id)!;
-      const material = materiales.find((m) => m.id === form.material_id)!;
-      const tiempoImpresionTotal = obtenerTiempoImpresionHorasTotal();
+  const resolverClienteId = useCallback(async (): Promise<string | null> => {
+    if (form.cliente_id) return form.cliente_id;
 
-      await guardarCotizacion({
-        userId: user.id,
-        clienteNombre: form.cliente_nombre || "Cliente General",
-        clienteContacto: form.cliente_contacto || null,
-        notas: form.notas || null,
-        item: {
-          nombre_pieza: form.nombre_pieza || "Pieza 3D",
-          cantidad: Number(form.cantidad),
-          peso_gramos: Number(form.peso_gramos),
-          tiempo_impresion_horas: tiempoImpresionTotal,
-          tiempo_preparacion_minutos: Number(
-            form.tiempo_preparacion_minutos || 0,
-          ),
-          tiempo_postprocesado_minutos: Number(
+    const nombre = form.nombre_cliente.trim();
+    if (!nombre) return null;
+
+    if (form.telefono_cliente.trim()) {
+      const existente = buscarPorTelefono(form.telefono_cliente.trim());
+      if (existente) return existente.id;
+    }
+
+    const nuevo = await crearCliente({
+      nombre,
+      telefono: form.telefono_cliente.trim() || null,
+      empresa_id: empresaId,
+    } as Parameters<typeof crearCliente>[0]);
+
+    return nuevo?.id ?? null;
+  }, [
+    form.cliente_id,
+    form.nombre_cliente,
+    form.telefono_cliente,
+    empresaId,
+    buscarPorTelefono,
+    crearCliente,
+  ]);
+
+  const guardar = useCallback(
+    async (extraData?: { cliente_id?: string }): Promise<any> => {
+      if (!user || !resultado) return null;
+
+      setGuardando(true);
+      setError(null);
+
+      try {
+        const clienteId = extraData?.cliente_id || (await resolverClienteId());
+
+        const respuestaBD = await guardarCotizacion({
+          userId: user.id,
+          empresaId: empresaId ?? undefined,
+          clienteId,
+          clienteNombre: form.nombre_cliente || "Cliente General",
+          clienteContacto: form.telefono_cliente || null,
+          notas: form.notas || null,
+          impresoraId: form.impresora_id,
+          filamentoId: form.filamento_id,
+          tiempoPreparacionMinutos: Number(form.tiempo_preparacion_minutos || 0),
+          tiempoPostprocesadoMinutos: Number(
             form.tiempo_postprocesado_minutos || 0,
           ),
-          impresora,
-          material,
-        },
-        resultado,
-      });
+          costoDisenoTotal: resultado.precio_personalizacion ?? 0,
+          resultado,
+        });
 
-      setForm(initialForm);
-      setResultado(null);
-      await cargarDatosBase();
-      return true;
-    } catch (e: any) {
-      setError(e.message ?? "Error al guardar la cotización");
-      return false;
-    } finally {
-      setGuardando(false);
-    }
-  };
+        setForm(initialForm);
+        setPiezas([crearPiezaVacia(1)]);
+        setPiezaActivaId((p) => p);
+        setResultado(null);
+        await Promise.all([recargarTaller(), recargarClientes()]);
+        return respuestaBD;
+      } catch (e: unknown) {
+        const msg =
+          e instanceof Error ? e.message : "Error al guardar la cotización";
+        console.error("❌ guardarCotizacion falló:", e);
+        setError(msg);
+        return null;
+      } finally {
+        setGuardando(false);
+      }
+    },
+    [
+      user,
+      empresaId,
+      resultado,
+      form,
+      resolverClienteId,
+      recargarTaller,
+      recargarClientes,
+    ],
+  );
 
   return {
     form,
     updateField,
+    piezas,
+    piezaActivaId,
+    updatePiezaField,
+    agregarPieza,
+    eliminarPieza,
+    seleccionarPieza,
     impresoras,
-    materiales,
+    filamentos,
+    clientes,
     config,
     reglasMargen,
     resultado,
-    cargandoDatos,
+    cargandoDatos: cargandoTaller || cargandoClientes,
     calculando,
     guardando,
     error,
@@ -239,3 +337,5 @@ export function useCotizacion() {
     guardar,
   };
 }
+
+export type UseCotizacionReturn = ReturnType<typeof useCotizacion>;

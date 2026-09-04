@@ -1,14 +1,28 @@
-import { AuthProvider } from "@/context/AuthContext";
-import { ThemeProvider } from "@/context/ThemeContext";
-import { useAuth } from "@/features/auth/hooks/useAuth";
-import { useTheme } from "@/hooks/useTheme";
+// app/_layout.tsx
 import { Slot, useRouter, useSegments } from "expo-router";
 import React, { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { AuthProvider } from "../src/context/AuthContext";
+import { ConfiguracionTallerProvider } from "../src/context/ConfiguracionTallerContext";
+import { EmpresaProvider, useEmpresa } from "../src/context/EmpresaContext";
+import { ThemeProvider } from "../src/context/ThemeContext";
+import { useAuth } from "../src/features/auth/hooks/useAuth";
+import { useTheme } from "../src/hooks/useTheme";
 
-// Componente interno para acceder a los hooks de Auth y Theme
+// Subcomponente interno para envolver el Provider del taller con el ID de la empresa
+function ConfiguredTallerProvider({ children }: { children: React.ReactNode }) {
+  const { empresa } = useEmpresa();
+  const empresaId = empresa?.id ?? null;
+
+  return (
+    <ConfiguracionTallerProvider empresaId={empresaId}>
+      {children}
+    </ConfiguracionTallerProvider>
+  );
+}
+
 function RootNavigation() {
-  const { session, initialized } = useAuth();
+  const { session, user, initialized } = useAuth();
   const { theme } = useTheme();
   const router = useRouter();
   const segments = useSegments();
@@ -19,15 +33,12 @@ function RootNavigation() {
     const inAuthGroup = segments[0] === "(auth)";
 
     if (session && inAuthGroup) {
-      // Redirigir al dashboard si ya inició sesión
       router.replace("/(tabs)");
     } else if (!session && !inAuthGroup) {
-      // Redirigir a login si no hay sesión
       router.replace("/(auth)/login");
     }
-  }, [session, initialized, segments]);
+  }, [session, initialized, segments, router]);
 
-  // Loader de inicialización adaptado al tema activo
   if (!initialized) {
     return (
       <View
@@ -38,10 +49,17 @@ function RootNavigation() {
     );
   }
 
-  return <Slot />;
+  const userId = session?.user?.id ?? user?.id ?? null;
+
+  return (
+    <EmpresaProvider userId={userId}>
+      <ConfiguredTallerProvider>
+        <Slot />
+      </ConfiguredTallerProvider>
+    </EmpresaProvider>
+  );
 }
 
-// RootLayout con la jerarquía de proveedores correcta
 export default function RootLayout() {
   return (
     <ThemeProvider>

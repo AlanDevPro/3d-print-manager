@@ -1,13 +1,8 @@
-// app/cuenta.tsx
-import { ChangePasswordModal } from "@/components/forms/ChangePasswordModal";
-import { ItemDato } from "@/components/ui/ItemDato";
-import { Seccion } from "@/components/ui/Seccion";
-import { useAccount } from "@/features/auth/hooks/useAccount";
-import { useTheme } from "@/hooks/useTheme";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack } from "expo-router";
 import React from "react";
 import {
+  ActivityIndicator,
   Image,
   Pressable,
   ScrollView,
@@ -17,6 +12,13 @@ import {
   View,
 } from "react-native";
 
+import { ChangePasswordModal } from "@/components/forms/ChangePasswordModal";
+import { ItemDato } from "@/components/ui/ItemDato";
+import { Seccion } from "@/components/ui/Seccion";
+import { useAccount } from "@/features/auth/hooks/useAccount";
+import { RolUsuario } from "@/features/auth/types";
+import { useTheme } from "@/hooks/useTheme";
+
 export default function CuentaScreen() {
   const { theme, isDark, mode, setThemeMode } = useTheme();
   const acc = useAccount();
@@ -24,6 +26,58 @@ export default function CuentaScreen() {
   const handleToggleTheme = (value: boolean) => {
     setThemeMode(value ? "dark" : "light");
   };
+
+  const handleActionDatosPersonales = () => {
+    if (acc.modoEdicion) {
+      acc.handleGuardarPerfil();
+    } else {
+      acc.setModoEdicion(true);
+    }
+  };
+
+  const nombreMostrar = acc.nombre || "Usuario";
+  const emailMostrar = acc.email || "Cargando correo...";
+
+  // Selección de fuente de avatar (Prioridad: Selección Local -> Avatar DB -> Fallback Generado)
+  const avatarSourceUri =
+    acc.newAvatarUri ||
+    acc.avatarUrl ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(
+      nombreMostrar,
+    )}&background=DC2626&color=fff&size=128`;
+
+  // Configuración de visualización profesional según el rol
+  const getRoleBadgeConfig = (rol: RolUsuario) => {
+    switch (rol) {
+      case "admin":
+        return {
+          label: "ADMINISTRADOR",
+          icon: "shield-checkmark" as const,
+          bg: "#FEF2F2",
+          text: "#DC2626",
+          border: "#FECACA",
+        };
+      case "empleado":
+        return {
+          label: "EMPLEADO / OPERADOR",
+          icon: "briefcase" as const,
+          bg: "#EFF6FF",
+          text: "#2563EB",
+          border: "#BFDBFE",
+        };
+      case "cliente":
+      default:
+        return {
+          label: "CLIENTE",
+          icon: "person" as const,
+          bg: "#F0FDF4",
+          text: "#16A34A",
+          border: "#BBF7D0",
+        };
+    }
+  };
+
+  const roleConfig = getRoleBadgeConfig(acc.rol);
 
   return (
     <>
@@ -49,37 +103,51 @@ export default function CuentaScreen() {
           ]}
         >
           <View style={styles.avatarContainer}>
-            <Image
-              source={{
-                uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                  acc.nombre || "Usuario",
-                )}&background=DC2626&color=fff&size=128`,
-              }}
-              style={styles.avatar}
-            />
+            <Image source={{ uri: avatarSourceUri }} style={styles.avatar} />
             <Pressable
-              style={[
+              disabled={acc.saving}
+              onPress={acc.handlePickAvatar}
+              style={({ pressed }) => [
                 styles.badgeEdit,
                 {
                   backgroundColor: theme.primary,
                   borderColor: theme.bgSurface,
+                  opacity: pressed || acc.saving ? 0.8 : 1,
                 },
               ]}
             >
-              <Ionicons name="camera" size={14} color="#FFF" />
+              {acc.saving ? (
+                <ActivityIndicator size="small" color="#FFF" />
+              ) : (
+                <Ionicons name="camera" size={16} color="#FFF" />
+              )}
             </Pressable>
           </View>
+
           <Text style={[styles.userName, { color: theme.textPrimary }]}>
-            {acc.nombre}
+            {nombreMostrar}
           </Text>
           <Text style={[styles.userEmail, { color: theme.textSecondary }]}>
-            {acc.email}
+            {emailMostrar}
           </Text>
+
+          {/* BADGE DE ROL PROFESIONAL */}
           <View
-            style={[styles.roleTag, { backgroundColor: theme.primaryLight }]}
+            style={[
+              styles.roleBadgeContainer,
+              {
+                backgroundColor: isDark ? theme.borderLight : roleConfig.bg,
+                borderColor: roleConfig.border,
+              },
+            ]}
           >
-            <Text style={[styles.roleText, { color: theme.primary }]}>
-              Plan Pro / Usuario Verificado
+            <Ionicons
+              name={roleConfig.icon}
+              size={13}
+              color={roleConfig.text}
+            />
+            <Text style={[styles.roleBadgeText, { color: roleConfig.text }]}>
+              {roleConfig.label}
             </Text>
           </View>
         </View>
@@ -87,8 +155,10 @@ export default function CuentaScreen() {
         {/* 1. DATOS PERSONALES */}
         <Seccion
           titulo="Datos Personales"
-          actionText={acc.modoEdicion ? "Guardar" : "Editar"}
-          onActionPress={() => acc.setModoEdicion(!acc.modoEdicion)}
+          actionText={
+            acc.saving ? "Guardando..." : acc.modoEdicion ? "Guardar" : "Editar"
+          }
+          onActionPress={handleActionDatosPersonales}
         >
           <View
             style={[
@@ -215,6 +285,7 @@ export default function CuentaScreen() {
             ]}
           >
             <Pressable
+              disabled={acc.isSigningOut}
               style={({ pressed }) => [
                 styles.menuItem,
                 pressed && { backgroundColor: theme.borderLight },
@@ -222,32 +293,17 @@ export default function CuentaScreen() {
               onPress={acc.handleCerrarSesion}
             >
               <View style={styles.menuItemLeft}>
-                <Ionicons
-                  name="log-out-outline"
-                  size={20}
-                  color={theme.danger}
-                />
+                {acc.isSigningOut ? (
+                  <ActivityIndicator size="small" color={theme.danger} />
+                ) : (
+                  <Ionicons
+                    name="log-out-outline"
+                    size={20}
+                    color={theme.danger}
+                  />
+                )}
                 <Text style={[styles.menuItemText, { color: theme.danger }]}>
-                  Cerrar Sesión
-                </Text>
-              </View>
-            </Pressable>
-
-            <View
-              style={[styles.divider, { backgroundColor: theme.borderLight }]}
-            />
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.menuItem,
-                pressed && { backgroundColor: theme.borderLight },
-              ]}
-              onPress={acc.handleEliminarCuenta}
-            >
-              <View style={styles.menuItemLeft}>
-                <Ionicons name="trash-outline" size={20} color={theme.danger} />
-                <Text style={[styles.menuItemText, { color: theme.danger }]}>
-                  Eliminar Cuenta
+                  {acc.isSigningOut ? "Cerrando sesión..." : "Cerrar Sesión"}
                 </Text>
               </View>
             </Pressable>
@@ -289,17 +345,19 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
   },
   badgeEdit: {
     position: "absolute",
     bottom: 0,
     right: 0,
-    padding: 6,
-    borderRadius: 12,
+    padding: 8,
+    borderRadius: 20,
     borderWidth: 2,
+    justifyContent: "center",
+    alignItems: "center",
   },
   userName: {
     fontSize: 18,
@@ -309,15 +367,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
-  roleTag: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 8,
+  roleBadgeContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginTop: 10,
   },
-  roleText: {
+  roleBadgeText: {
     fontSize: 11,
-    fontWeight: "600",
+    fontWeight: "700",
+    letterSpacing: 0.5,
   },
   card: {
     borderRadius: 12,
