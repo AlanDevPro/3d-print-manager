@@ -57,6 +57,11 @@ export interface PedidoRow {
   estado: EstadoPedido;
   fecha_entrega: string | null;
 
+  // Campos agregados para estimación e inicio de impresión
+  fecha_inicio_impresion: string | null;
+  fecha_estimada_listo: string | null;
+  horas_impresion_estimadas: number | null;
+
   pago_total: number;
   pago_anticipo_pct: number;
   pago_monto_cobrado: number;
@@ -106,6 +111,12 @@ export interface Pedido {
   estado: EstadoPedido;
   fechaEntregaTexto: string;
   fechaEntregaISO: string;
+
+  // Campos agregados para estimación e inicio de impresión
+  fechaInicioImpresion: string | null;
+  fechaEstimadaListo: string | null;
+  horasImpresionEstimadas: number | null;
+
   pago: {
     estado: EstadoPago;
     metodo: MetodoPago | null;

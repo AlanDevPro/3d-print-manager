@@ -61,59 +61,58 @@ export function usePedidoActions(
   );
 
   const confirmarVerificacionPago = useCallback(
-  async (pedido: Pedido) => {
-    if (pedido.pago.verificado) return; // ya verificado, no vuelve a ejecutar
+    async (pedido: Pedido) => {
+      if (pedido.pago.verificado) return;
 
-    const estadoAnterior = pedido.estado;
-    const pagoAnterior = pedido.pago;
-    const checklistAnterior = pedido.envio.checklist;
+      const estadoAnterior = pedido.estado;
+      const pagoAnterior = pedido.pago;
+      const checklistAnterior = pedido.envio.checklist;
 
-    const montoAnticipo =
-      Math.round(pedido.pago.total * (pedido.pago.anticipoPorcentaje / 100) * 100) / 100;
+      const montoAnticipo =
+        Math.round(pedido.pago.total * (pedido.pago.anticipoPorcentaje / 100) * 100) / 100;
 
-    // Actualización optimista local: refleja lo que hará la función SQL
-    actualizarPedidoLocal(pedido.id, {
-      estado: estadoAnterior === "pendiente" ? "en_impresion" : estadoAnterior,
-      pago: {
-        ...pedido.pago,
-        verificado: true,
-        estado: "anticipo",
-        montoCobrado: montoAnticipo,
-      },
-      envio: {
-        ...pedido.envio,
-        checklist: checklistAnterior.map((item, index) =>
-          index === 0 ? { ...item, hecho: true } : item
-        ),
-      },
-    });
-
-    try {
-      setCargandoConfirmacion(true);
-      setErrorAccion(null);
-
-      await verificarPagoPedidoService(pedido.id);
-      await recargar();
-
-      Alert.alert(
-        "Pago verificado",
-        "El anticipo fue verificado. El pedido pasó a producción."
-      );
-    } catch (e: any) {
       actualizarPedidoLocal(pedido.id, {
-        estado: estadoAnterior,
-        pago: pagoAnterior,
-        envio: { ...pedido.envio, checklist: checklistAnterior },
+        estado: estadoAnterior === "pendiente" ? "en_impresion" : estadoAnterior,
+        pago: {
+          ...pedido.pago,
+          verificado: true,
+          estado: "anticipo",
+          montoCobrado: montoAnticipo,
+        },
+        envio: {
+          ...pedido.envio,
+          checklist: checklistAnterior.map((item, index) =>
+            index === 0 ? { ...item, hecho: true } : item
+          ),
+        },
       });
-      const msg = e.message || "No se pudo verificar el pago.";
-      setErrorAccion(msg);
-      Alert.alert("Error", msg);
-    } finally {
-      setCargandoConfirmacion(false);
-    }
-  },
-  [actualizarPedidoLocal, recargar]
-);
+
+      try {
+        setCargandoConfirmacion(true);
+        setErrorAccion(null);
+
+        await verificarPagoPedidoService(pedido.id);
+        await recargar();
+
+        Alert.alert(
+          "Pago verificado",
+          "El anticipo fue verificado. El pedido pasó a producción."
+        );
+      } catch (e: any) {
+        actualizarPedidoLocal(pedido.id, {
+          estado: estadoAnterior,
+          pago: pagoAnterior,
+          envio: { ...pedido.envio, checklist: checklistAnterior },
+        });
+        const msg = e.message || "No se pudo verificar el pago.";
+        setErrorAccion(msg);
+        Alert.alert("Error", msg);
+      } finally {
+        setCargandoConfirmacion(false);
+      }
+    },
+    [actualizarPedidoLocal, recargar]
+  );
 
   const toggleChecklist = useCallback(
     async (pedido: Pedido, itemId: string) => {

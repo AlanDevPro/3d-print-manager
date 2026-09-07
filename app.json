@@ -19,18 +19,21 @@
         "monochromeImage": "./src/assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.alandevprosteam.cotizador3d"
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./src/assets/images/favicon.png"
     },
     "plugins": [
       "expo-router",
+      "expo-dev-client",
+      "expo-notifications",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./src/assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
@@ -43,11 +46,16 @@
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": false
     },
     "extra": {
       "googleApiKey": "AIzaSyC-WpR5EyaTr4QLHsgRtrNOwCEWojhCuO8",
-      "googleCx": "618cb6b3c46864b2c"
-    }
+      "googleCx": "618cb6b3c46864b2c",
+      "router": {},
+      "eas": {
+        "projectId": "c88a1403-a1cf-4001-af6e-dcc6f292f96a"
+      }
+    },
+    "owner": "alandevpros-team"
   }
 }

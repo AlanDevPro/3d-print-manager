@@ -38,6 +38,12 @@ export function mapPedidoFromDb(row: PedidoRow): Pedido {
     estado: row.estado,
     fechaEntregaTexto: formatFechaEntrega(row.fecha_entrega),
     fechaEntregaISO: row.fecha_entrega ?? "",
+
+    // Campos mapeados para la estimación e inicio de impresión
+    fechaInicioImpresion: row.fecha_inicio_impresion,
+    fechaEstimadaListo: row.fecha_estimada_listo,
+    horasImpresionEstimadas: row.horas_impresion_estimadas,
+
     pago: {
       estado: row.pago_estado,
       metodo: ultimoPago?.metodo ?? null,
