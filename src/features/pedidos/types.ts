@@ -1,28 +1,21 @@
-// src/features/pedidos/types.ts
-// Tipos de dominio del módulo Pedidos.
-// - Los tipos "Row" reflejan las columnas reales de Supabase (snake_case).
-// - Los tipos "UI" son los que consumen los componentes (camelCase),
-//   y se obtienen siempre a través del mapper (ver mappers/pedidosMapper.ts).
-
-// ---------------------------------------------------------------------------
-// Enums / uniones de estado
-// ---------------------------------------------------------------------------
 export type EstadoPedido = "pendiente" | "en_impresion" | "listo" | "entregado";
 export type EstadoPago = "sin_pagar" | "anticipo" | "pagado";
 export type MetodoPago = "transferencia" | "efectivo" | "qr";
-export type TipoEnvio = "recogida" | "domicilio" | "transporte";
+export type TipoEnvio = "recoger" | "domicilio";
 export type Prioridad = "normal" | "urgente" | "vencido";
 export type TipoPago = "anticipo" | "abono" | "pago_final";
 
-// ---------------------------------------------------------------------------
-// Filas crudas de Supabase (tal cual las devuelve la query con joins)
-// ---------------------------------------------------------------------------
 export interface ClienteRow {
   id: string;
   nombre: string;
   telefono: string | null;
   direccion: string | null;
   notas: string | null;
+}
+
+export interface CotizacionRelacionRow {
+  id: string;
+  imagen_referencia_url: string | null;
 }
 
 export interface PedidoChecklistItemRow {
@@ -40,11 +33,21 @@ export interface PedidoEventoRow {
   created_at: string;
 }
 
-// Fila de `pedidos` con sus relaciones embebidas (select anidado de Supabase)
+export interface PedidoPagoRow {
+  id: string;
+  pedido_id: string;
+  monto: number;
+  metodo: MetodoPago;
+  tipo: TipoPago;
+  comprobante_url?: string | null;
+  verificado?: boolean;
+  created_at: string;
+}
+
 export interface PedidoRow {
   id: string;
   empresa_id: string;
-  creado_por: string; // antes: user_id (la columna real es creado_por)
+  creado_por: string;
   cotizacion_id: string | null;
   cliente_id: string;
   producto_id: string | null;
@@ -68,17 +71,16 @@ export interface PedidoRow {
   updated_at: string;
 
   clientes: ClienteRow | null;
+  cotizaciones: CotizacionRelacionRow | null;
   pedido_checklist_items: PedidoChecklistItemRow[] | null;
   pedido_eventos: PedidoEventoRow[] | null;
+  pedido_pagos: PedidoPagoRow[] | null;
   cliente_recurrente?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Tipos de UI (los que usan los componentes/pantalla)
-// ---------------------------------------------------------------------------
 export interface EventoHistorial {
   id: string;
-  fecha: string; // ISO
+  fecha: string;
   texto: string;
 }
 
@@ -90,7 +92,7 @@ export interface ChecklistItem {
 
 export interface Pedido {
   id: string;
-  codigo: string; // ej. PED-1042 (derivado de codigo_pedido)
+  codigo: string;
   cotizacionId: string | null;
   cliente: {
     id: string;
@@ -110,6 +112,8 @@ export interface Pedido {
     anticipoPorcentaje: number;
     total: number;
     montoCobrado: number;
+    comprobanteUrl: string | null;
+    verificado: boolean;
   };
   envio: {
     tipo: TipoEnvio;
@@ -118,10 +122,10 @@ export interface Pedido {
     checklist: ChecklistItem[];
   };
   fotoFinalUrl: string | null;
+  fotoCotizacionUrl: string | null;
   historial: EventoHistorial[];
 }
 
-// Payload para registrar un cobro (ver services/pedidosService.ts -> registrarPago)
 export interface RegistrarPagoInput {
   pedidoId: string;
   monto: number;

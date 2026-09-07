@@ -1,10 +1,12 @@
+// src/app/(tabs)/cotizar.tsx
 import { Ionicons } from "@expo/vector-icons";
-import React, { useMemo } from "react";
+import { useFocusEffect } from "@react-navigation/native";
+import React, { useCallback, useMemo } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { CotizacionForm } from "@/features/cotizacion/components/forms/CotizacionForm";
-import { CotizacionResumenCard } from "@/features/cotizacion/components/CotizacionResumenCard";
 import { useClientes } from "@/features/clientes/hooks/useClientes";
+import { CotizacionResumenCard } from "@/features/cotizacion/components/CotizacionResumenCard";
+import { CotizacionForm } from "@/features/cotizacion/components/forms/CotizacionForm";
 import { useCotizacion } from "@/features/cotizacion/hooks/useCotizacion";
 import { buildEspecificaciones } from "@/features/cotizacion/utils/buildEspecificaciones";
 import { Filamento, Impresora } from "@/features/materiales/types";
@@ -14,7 +16,14 @@ export default function CotizarScreen() {
   const { theme } = useTheme();
 
   const cotizacion = useCotizacion();
-  const { guardarCliente } = useClientes();
+  const { guardarCliente, recargar: recargarClientes } = useClientes();
+
+  useFocusEffect(
+    useCallback(() => {
+      cotizacion.recargarTaller?.();
+      recargarClientes?.();
+    }, [cotizacion.recargarTaller, recargarClientes])
+  );
 
   const filamentosList = cotizacion.filamentos as unknown as Filamento[];
   const impresorasList = cotizacion.impresoras as unknown as Impresora[];
@@ -29,8 +38,6 @@ export default function CotizarScreen() {
     [cotizacion.form, filamentosList, impresorasList],
   );
 
-  // "cantidad" ya no vive en CotizarFormState: ahora es por pieza (PiezaFormState).
-  // Sumamos la cantidad de todas las piezas para el total del proyecto.
   const cantidadTotal = useMemo(
     () =>
       (cotizacion.piezas ?? []).reduce(
@@ -69,23 +76,16 @@ export default function CotizarScreen() {
       <CotizacionForm
         form={cotizacion.form}
         updateField={cotizacion.updateField}
-        // ⚠️ Pendiente: CotizacionForm (versión revisada antes) maneja "piezas"
-        // con useState INTERNO y su Props no declara estas keys todavía.
-        // Estas props solo compilarán/servirán una vez decidas mover el manejo
-        // de piezas al hook useCotizacion y actualices CotizacionFormProps
-        // para aceptarlas (quedó pendiente tu confirmación de esto).
         piezas={cotizacion.piezas}
         piezaActivaId={cotizacion.piezaActivaId}
         updatePiezaField={cotizacion.updatePiezaField}
         agregarPieza={cotizacion.agregarPieza}
         eliminarPieza={cotizacion.eliminarPieza}
         seleccionarPieza={cotizacion.seleccionarPieza}
-        // Datos de catálogo
         impresoras={impresorasList as any}
         materiales={filamentosList as any}
         clientes={cotizacion.clientes}
         reglasMargen={cotizacion.reglasMargen as any}
-        // Estados de carga y callbacks
         cargandoDatos={cotizacion.cargandoDatos}
         calculando={cotizacion.calculando}
         error={cotizacion.error}

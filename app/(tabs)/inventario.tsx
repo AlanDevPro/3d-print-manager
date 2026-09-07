@@ -1,5 +1,3 @@
-import { FormularioFilamento } from "@/components/forms/FormularioFilamento";
-import { FormularioImpresora } from "@/components/forms/FormularioImpresora";
 import {
   DetalleFilamentoModal,
   DetalleImpresoraModal,
@@ -8,6 +6,8 @@ import {
   InventarioHeader,
   PiezaCard,
 } from "@/features/inventario/components";
+import {FormularioFilamento} from "@/features/inventario/components/forms/FormularioFilamento";
+import {FormularioImpresora} from "@/features/inventario/components/forms/FormularioImpresora";
 import { useInventario } from "@/features/inventario/hooks/useInventario";
 import type {
   Filamento,
@@ -15,7 +15,7 @@ import type {
   SubPestanaInventario,
 } from "@/features/inventario/types";
 import { useTheme } from "@/hooks/useTheme";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -29,6 +29,15 @@ export default function InventarioScreen() {
   const { theme } = useTheme();
   const [tab, setTab] = useState<SubPestanaInventario>("filamentos");
 
+  // Estado de búsqueda general
+  const [busqueda, setBusqueda] = useState("");
+
+  // Estados de filtros
+  const [filtroTipo, setFiltroTipo] = useState("");
+  const [filtroMarcaFilamento, setFiltroMarcaFilamento] = useState("");
+  const [filtroMarcaImpresora, setFiltroMarcaImpresora] = useState("");
+  const [filtroModeloImpresora, setFiltroModeloImpresora] = useState("");
+
   const {
     filamentos,
     piezas,
@@ -40,22 +49,71 @@ export default function InventarioScreen() {
     agregarImpresora,
   } = useInventario();
 
-  const [filamentoActivo, setFilamentoActivo] = useState<Filamento | null>(
-    null,
-  );
-  const [impresoraActiva, setImpresoraActiva] = useState<Impresora | null>(
-    null,
-  );
+  const [filamentoActivo, setFilamentoActivo] = useState<Filamento | null>(null);
+  const [impresoraActiva, setImpresoraActiva] = useState<Impresora | null>(null);
   const [formFilamentoVisible, setFormFilamentoVisible] = useState(false);
   const [formImpresoraVisible, setFormImpresoraVisible] = useState(false);
 
-  const manejarAbrirFormFilamento = () => {
-    setFormFilamentoVisible(true);
-  };
+  // Extraer opciones únicas directamente de la Base de Datos / Hook
+  const tiposDisponibles = useMemo(() => {
+    return Array.from(new Set(filamentos.map((f) => f.tipo))).filter(Boolean);
+  }, [filamentos]);
 
-  const manejarAbrirFormImpresora = () => {
-    setFormImpresoraVisible(true);
-  };
+  const marcasFilamentoDisponibles = useMemo(() => {
+    return Array.from(new Set(filamentos.map((f) => f.marca))).filter(Boolean);
+  }, [filamentos]);
+
+  const marcasImpresoraDisponibles = useMemo(() => {
+    return Array.from(new Set(impresoras.map((i) => i.marca))).filter(Boolean);
+  }, [impresoras]);
+
+  const modelosImpresoraDisponibles = useMemo(() => {
+    return Array.from(new Set(impresoras.map((i) => i.modelo))).filter(Boolean);
+  }, [impresoras]);
+
+  // Filtrado reactivo en tiempo real para Filamentos
+  const filamentosFiltrados = useMemo(() => {
+    return filamentos.filter((f) => {
+      const coincideBusqueda =
+        !busqueda.trim() ||
+        f.marca.toLowerCase().includes(busqueda.toLowerCase()) ||
+        f.tipo.toLowerCase().includes(busqueda.toLowerCase()) ||
+        f.color.toLowerCase().includes(busqueda.toLowerCase());
+
+      const coincideTipo = !filtroTipo || f.tipo.toLowerCase() === filtroTipo.toLowerCase();
+      const coincideMarca =
+        !filtroMarcaFilamento || f.marca.toLowerCase() === filtroMarcaFilamento.toLowerCase();
+
+      return coincideBusqueda && coincideTipo && coincideMarca;
+    });
+  }, [filamentos, busqueda, filtroTipo, filtroMarcaFilamento]);
+
+  // Filtrado reactivo en tiempo real para Impresoras
+  const impresorasFiltradas = useMemo(() => {
+    return impresoras.filter((i) => {
+      const coincideBusqueda =
+        !busqueda.trim() ||
+        i.marca.toLowerCase().includes(busqueda.toLowerCase()) ||
+        i.modelo.toLowerCase().includes(busqueda.toLowerCase());
+
+      const coincideMarca =
+        !filtroMarcaImpresora || i.marca.toLowerCase() === filtroMarcaImpresora.toLowerCase();
+      const coincideModelo =
+        !filtroModeloImpresora || i.modelo.toLowerCase() === filtroModeloImpresora.toLowerCase();
+
+      return coincideBusqueda && coincideMarca && coincideModelo;
+    });
+  }, [impresoras, busqueda, filtroMarcaImpresora, filtroModeloImpresora]);
+
+  // Filtrado reactivo para Piezas
+  const piezasFiltradas = useMemo(() => {
+    if (!busqueda.trim()) return piezas;
+    const q = busqueda.toLowerCase();
+    return piezas.filter((p) => p.nombre.toLowerCase().includes(q));
+  }, [piezas, busqueda]);
+
+  const manejarAbrirFormFilamento = () => setFormFilamentoVisible(true);
+  const manejarAbrirFormImpresora = () => setFormImpresoraVisible(true);
 
   if (cargando) {
     return (
@@ -93,26 +151,44 @@ export default function InventarioScreen() {
       <InventarioHeader
         theme={theme}
         tab={tab}
-        onCambiarTab={setTab}
+        onCambiarTab={(nuevaTab) => {
+          setTab(nuevaTab);
+          setBusqueda(""); // Limpiar búsqueda al cambiar de pestaña
+        }}
         totalFilamentos={filamentos.length}
         totalImpresoras={impresoras.length}
         filamentosBajoStock={filamentosBajoStock}
         onAgregarFilamento={manejarAbrirFormFilamento}
         onAgregarImpresora={manejarAbrirFormImpresora}
-        //esAdmin={true}
+        busqueda={busqueda}
+        onCambiarBusqueda={setBusqueda}
+        filtroTipo={filtroTipo}
+        onCambiarFiltroTipo={setFiltroTipo}
+        tiposDisponibles={tiposDisponibles}
+        filtroMarcaFilamento={filtroMarcaFilamento}
+        onCambiarFiltroMarcaFilamento={setFiltroMarcaFilamento}
+        marcasFilamentoDisponibles={marcasFilamentoDisponibles}
+        filtroMarcaImpresora={filtroMarcaImpresora}
+        onCambiarFiltroMarcaImpresora={setFiltroMarcaImpresora}
+        marcasImpresoraDisponibles={marcasImpresoraDisponibles}
+        filtroModeloImpresora={filtroModeloImpresora}
+        onCambiarFiltroModeloImpresora={setFiltroModeloImpresora}
+        modelosImpresoraDisponibles={modelosImpresoraDisponibles}
       />
 
       {tab === "filamentos" && (
         <FlatList
           key="grid-filamentos-2col"
-          data={filamentos}
+          data={filamentosFiltrados}
           numColumns={2}
           keyExtractor={(f) => f.id}
           columnWrapperStyle={styles.columnWrapper}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-              Aún no registraste filamentos en esta empresa.
+              {busqueda.length > 0 || filtroTipo || filtroMarcaFilamento
+                ? "No se encontraron filamentos con los criterios seleccionados."
+                : "Aún no registraste filamentos en el inventario."}
             </Text>
           }
           renderItem={({ item }) => (
@@ -128,12 +204,14 @@ export default function InventarioScreen() {
       {tab === "piezas" && (
         <FlatList
           key="list-piezas-1col"
-          data={piezas}
+          data={piezasFiltradas}
           keyExtractor={(p) => p.id}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-              Aún no tienes piezas en stock.
+              {busqueda.length > 0
+                ? "No se encontraron piezas con esa búsqueda."
+                : "Aún no tienes piezas registradas en stock."}
             </Text>
           }
           renderItem={({ item }) => <PiezaCard theme={theme} pieza={item} />}
@@ -143,12 +221,14 @@ export default function InventarioScreen() {
       {tab === "impresoras" && (
         <FlatList
           key="list-impresoras-1col"
-          data={impresoras}
+          data={impresorasFiltradas}
           keyExtractor={(i) => i.id}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-              Aún no registraste impresoras en esta empresa.
+              {busqueda.length > 0 || filtroMarcaImpresora || filtroModeloImpresora
+                ? "No se encontraron impresoras con los criterios seleccionados."
+                : "Aún no registraste impresoras en el inventario."}
             </Text>
           }
           renderItem={({ item }) => (
@@ -216,5 +296,5 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  emptyText: { textAlign: "center", marginTop: 24 },
+  emptyText: { textAlign: "center", marginTop: 24, fontSize: 13 },
 });

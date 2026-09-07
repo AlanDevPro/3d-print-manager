@@ -1,6 +1,3 @@
-// Toda la lógica de datos que antes vivía dentro de PedidosScreen.
-// La pantalla queda reducida a "conectar hooks con componentes".
-
 import { useEmpresaActual } from "@/context/EmpresaContext";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { estadoConfig, ESTADOS } from "../constants";
@@ -31,7 +28,6 @@ export function usePedidos() {
       const rows = await fetchPedidos(empresaId);
       setPedidos(mapPedidosFromDb(rows));
     } catch (e: any) {
-      // 🚨 Diagnóstico en consola Metro/Debugger
       console.error("Error cargando pedidos en Supabase:", e);
       setError(e.message ?? "No se pudieron cargar los pedidos");
     } finally {
@@ -47,7 +43,6 @@ export function usePedidos() {
     return unsubscribe;
   }, [empresaId, cargarPedidos]);
 
-  // Actualiza un pedido en memoria sin esperar al refetch (UI optimista).
   const actualizarPedidoLocal = useCallback(
     (id: string, cambios: Partial<Pedido>) => {
       setPedidos((prev) =>

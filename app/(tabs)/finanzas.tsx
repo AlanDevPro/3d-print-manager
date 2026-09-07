@@ -20,7 +20,6 @@ import {
 } from "@/features/finanzas/utils/finanzasCalculos";
 
 import { SeccionBloque } from "@/components/ui/SeccionBloque";
-import { AlertaStockBajoBanner } from "@/features/finanzas/components/AlertaStockBajoBanner";
 import { ComparacionMesAnteriorCard } from "@/features/finanzas/components/ComparacionMesAnteriorCard";
 import { EgresosPorCategoriaCard } from "@/features/finanzas/components/EgresosPorCategoriaCard";
 import {
@@ -28,7 +27,6 @@ import {
   FinanzasTabs,
 } from "@/features/finanzas/components/FinanzasTabs";
 import { GraficoIngresosEgresos } from "@/features/finanzas/components/GraficoIngresosEgresos";
-import { InventarioFilamentoCard } from "@/features/finanzas/components/InventarioFilamentoCard";
 import { ListaMovimientos } from "@/features/finanzas/components/ListaMovimientos";
 import { MetaMensualCard } from "@/features/finanzas/components/MetaMensualCard";
 import { MetodoPagoBar } from "@/features/finanzas/components/MetodoPagoBar";
@@ -107,12 +105,7 @@ export default function FinanzasScreen() {
           <Text style={[styles.title, { color: theme.textPrimary }]}>
             Finanzas
           </Text>
-          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-            Salud económica de tu taller
-          </Text>
         </View>
-
-        <AlertaStockBajoBanner theme={theme} filamentos={filamentosBajoStock} />
 
         <PeriodoSelector
           theme={theme}
@@ -172,7 +165,6 @@ export default function FinanzasScreen() {
               porCategoria={resumen.porCategoriaEgresos}
               totalEgresos={resumen.totalEgresos}
             />
-            <InventarioFilamentoCard theme={theme} filamentos={filamentos} />
             <MetricasClaveCard
               theme={theme}
               costoPromedioGramo={costoPromedioGramo}

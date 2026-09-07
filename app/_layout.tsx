@@ -1,6 +1,7 @@
 // app/_layout.tsx
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Slot, useRouter, useSegments } from "expo-router";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { AuthProvider } from "../src/context/AuthContext";
 import { ConfiguracionTallerProvider } from "../src/context/ConfiguracionTallerContext";
@@ -61,12 +62,27 @@ function RootNavigation() {
 }
 
 export default function RootLayout() {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 0, // Se cambia a 0 para reaccionar al instante cuando invalida Supabase Realtime
+            gcTime: 1000 * 60 * 30, // 30 minutos
+            refetchOnWindowFocus: false,
+          },
+        },
+      })
+  );
+
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <RootNavigation />
-      </AuthProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <AuthProvider>
+          <RootNavigation />
+        </AuthProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }
 

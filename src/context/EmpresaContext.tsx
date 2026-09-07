@@ -1,3 +1,4 @@
+// src/context/EmpresaContext.tsx
 import { mapDbToEmpresa } from "@/features/empresa/mappers/empresaMapper";
 import { guardarEmpresaService } from "@/features/empresa/services/empresaService";
 import type { EmpresaInfo } from "@/features/empresa/types";
@@ -104,13 +105,11 @@ export function EmpresaProvider({ children, userId }: EmpresaProviderProps) {
       setError(null);
 
       try {
-        // Llama al servicio centralizado que gestiona la subida de Storage y el mapeo DB
         const empresaActualizada = await guardarEmpresaService(
           nuevaInfo,
-          empresaId,
+          empresaId
         );
 
-        // Mapea la respuesta devuelta por la base de datos de nuevo al modelo UI
         const empresaFormateada: EmpresaInfo = {
           id: empresaActualizada.id,
           nombreComercial: empresaActualizada.nombre_comercial ?? "",
@@ -135,12 +134,37 @@ export function EmpresaProvider({ children, userId }: EmpresaProviderProps) {
         setGuardando(false);
       }
     },
-    [empresaId],
+    [empresaId]
   );
 
   useEffect(() => {
     cargarEmpresaActual();
   }, [cargarEmpresaActual]);
+
+  // Suscripción Realtime para refrescar la empresa si cambia en la base de datos
+  useEffect(() => {
+    if (!empresaId) return;
+
+    const channel = supabase
+      .channel(`empresa-realtime-${empresaId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "empresas",
+          filter: `id=eq.${empresaId}`,
+        },
+        () => {
+          cargarEmpresaActual();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [empresaId, cargarEmpresaActual]);
 
   return (
     <EmpresaContext.Provider
@@ -160,16 +184,14 @@ export function EmpresaProvider({ children, userId }: EmpresaProviderProps) {
   );
 }
 
-// Hook principal de consumo
 export function useEmpresa() {
   const context = useContext(EmpresaContext);
   if (!context) {
     throw new Error(
-      "useEmpresa debe ser utilizado dentro de un EmpresaProvider",
+      "useEmpresa debe ser utilizado dentro de un EmpresaProvider"
     );
   }
   return context;
 }
 
-// Alias para compatibilidad con código existente
 export const useEmpresaActual = useEmpresa;

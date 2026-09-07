@@ -1,21 +1,16 @@
-import {
-  getProfile,
-  UserProfile,
-} from "@/features/auth/services/perfilService";
-import { RolUsuario } from "@/features/auth/types";
-import { supabase } from "@/services/supabase/client";
-import { Session, User } from "@supabase/supabase-js";
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { Session, User } from "@supabase/supabase-js";
+import { supabase } from "@/services/supabase/client";
+import { usePerfilHibrido } from "@/features/auth/hooks/usePerfilHibrido";
+import { RolUsuario } from "@/features/auth/types";
 
 export interface Profile {
   id: string;
   email: string;
   full_name: string | null;
   telefono: string | null;
-  plan: string;
-  verificado: boolean;
+  avatar_url: string | null;
   rol: RolUsuario;
-  avatar_url?: string | null;
 }
 
 export interface AuthContextValue {
@@ -36,53 +31,25 @@ export const AuthContext = createContext<AuthContextValue>({
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [initialized, setInitialized] = useState(false);
+  const [sessionInitializing, setSessionInitializing] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
-    try {
-      const data: UserProfile | null = await getProfile(userId);
-      if (data) {
-        setProfile({
-          id: data.id,
-          email: data.email ?? "",
-          full_name: data.full_name ?? null,
-          telefono: data.telefono ?? null,
-          plan: data.plan ?? "free",
-          verificado: data.verificado ?? false,
-          rol: data.rol ?? "cliente",
-          avatar_url: data.avatarUrl ?? null,
-        });
-      } else {
-        setProfile(null);
-      }
-    } catch (error) {
-      console.error("Error al cargar perfil global:", error);
-      setProfile(null);
-    }
-  };
+  const user = session?.user ?? null;
 
+  // 1. Delegamos la obtención, caché y sincronización en tiempo real del perfil al hook híbrido
+  const { data: rawProfile, isLoading: isProfileLoading, refetch } = usePerfilHibrido(user?.id);
+
+  // 2. Control del ciclo de vida de autenticación (JWT y tokens de Supabase Auth)
   useEffect(() => {
-    // 1. Obtener la sesión inicial almacenada
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        await fetchProfile(session.user.id);
-      }
-      setInitialized(true);
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      setSession(initialSession);
+      setSessionInitializing(false);
     });
 
-    // 2. Suscribirse a cambios de autenticación
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (_event, currentSession) => {
+      (_event, currentSession) => {
         setSession(currentSession);
-        if (currentSession?.user) {
-          await fetchProfile(currentSession.user.id);
-        } else {
-          setProfile(null);
-        }
-        setInitialized(true);
-      },
+        setSessionInitializing(false);
+      }
     );
 
     return () => {
@@ -90,17 +57,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
+  // 3. Mapear estrictamente los campos existentes en la tabla `profiles`
+  const profile: Profile | null = rawProfile
+    ? {
+        id: rawProfile.id,
+        email: rawProfile.email ?? user?.email ?? "",
+        full_name: rawProfile.full_name ?? null,
+        telefono: rawProfile.telefono ?? null,
+        avatar_url: rawProfile.avatarUrl ?? rawProfile.avatarUrl ?? null,
+        rol: (rawProfile.rol as RolUsuario) ?? "cliente",
+      }
+    : null;
+
+  // La app se considera inicializada cuando la sesión resuelve Y cuando finaliza la carga del perfil
+  const initialized = !sessionInitializing && !(Boolean(user) && isProfileLoading);
+
   const refreshProfile = async () => {
-    if (session?.user) {
-      await fetchProfile(session.user.id);
-    }
+    await refetch();
   };
 
   return (
     <AuthContext.Provider
       value={{
         session,
-        user: session?.user ?? null,
+        user,
         profile,
         initialized,
         refreshProfile,

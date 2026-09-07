@@ -1,3 +1,4 @@
+// src/context/ConfiguracionTallerContext.tsx
 import { mapDbToParametros } from "@/features/parametros/mappers/parametrosMapper";
 import {
   PARAMETROS_VACIOS,
@@ -22,9 +23,6 @@ export interface DatosTallerCompletos {
 export async function cargarDatosTaller(
   empresaId: string,
 ): Promise<DatosTallerCompletos> {
-  const { data: userData } = await supabase.auth.getUser();
-
-  // Construcción de consultas dinámicas con fallback de tenant
   let impresorasQuery = supabase
     .from("impresoras")
     .select("*")
@@ -35,7 +33,6 @@ export async function cargarDatosTaller(
     .select("*")
     .order("material", { ascending: true });
 
-  // 🟢 Ordenado por nombre tras eliminar los campos de rango
   let reglasQuery = supabase
     .from("reglas_margen_ganancia")
     .select("*")
@@ -62,12 +59,16 @@ export async function cargarDatosTaller(
     console.warn(`configuracion_empresa error: ${configRes.error.message}`);
   }
 
-  const filamentosFiltrados = (filamentosRes.data ?? []).filter(
-    (item: any) => item.activo !== false && item.is_active !== false,
+  // Filtrado estricto: descarta registros eliminados o marcados como inactivos
+  const impresorasFiltradas = (impresorasRes.data ?? []).filter(
+    (item: any) =>
+      item.activa !== false &&
+      item.is_active !== false &&
+      item.deleted_at == null,
   );
 
-  const impresorasFiltradas = (impresorasRes.data ?? []).filter(
-    (item: any) => item.activa !== false && item.is_active !== false,
+  const filamentosFiltrados = (filamentosRes.data ?? []).filter(
+    (item: any) => item.activo !== false && item.is_active !== false,
   );
 
   return {
@@ -114,6 +115,10 @@ export function ConfiguracionTallerProvider({
   const idObjetivo = empresaId ?? userId ?? "";
 
   const cargar = useCallback(async () => {
+    if (!idObjetivo) {
+      setCargando(false);
+      return;
+    }
     setCargando(true);
     setError(null);
     try {
@@ -138,6 +143,49 @@ export function ConfiguracionTallerProvider({
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  // Suscripción Realtime a las tablas operativas del taller
+  useEffect(() => {
+    if (!idObjetivo) return;
+
+    const channel = supabase
+      .channel(`taller-realtime-${idObjetivo}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "reglas_margen_ganancia",
+          filter: `empresa_id=eq.${idObjetivo}`,
+        },
+        () => cargar(),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "configuracion_empresa",
+          filter: `empresa_id=eq.${idObjetivo}`,
+        },
+        () => cargar(),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "impresoras",
+          filter: `empresa_id=eq.${idObjetivo}`,
+        },
+        () => cargar(),
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [idObjetivo, cargar]);
 
   const actualizarParametrosLocal = (nuevos: ParametrosOperativos) => {
     setParametros(nuevos);

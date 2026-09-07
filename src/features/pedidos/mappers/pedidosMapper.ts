@@ -1,38 +1,27 @@
-// src/features/pedidos/mappers/pedidosMapper.ts
-// Única puerta de entrada entre el esquema de Supabase y la UI.
-// Si mañana cambias una columna en la base de datos, SOLO tocas este archivo
-// (y types.ts) — los componentes nunca ven snake_case.
-
-import { ChecklistItem, EventoHistorial, Pedido, PedidoRow } from "../types";
-import { formatFechaEntrega } from "../utils/fechas";
-import { formatCodigoPedido } from "../utils/formato";
-
-function mapChecklist(row: PedidoRow): ChecklistItem[] {
-  return (row.pedido_checklist_items ?? [])
-    .slice()
-    .sort((a, b) => a.orden - b.orden)
-    .map((item) => ({
-      id: item.id,
-      label: item.label,
-      hecho: item.hecho,
-    }));
-}
-
-function mapHistorial(row: PedidoRow): EventoHistorial[] {
-  return (row.pedido_eventos ?? [])
-    .slice()
-    .sort(
-      (a, b) =>
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-    )
-    .map((evento) => ({
-      id: evento.id,
-      fecha: evento.created_at,
-      texto: evento.texto,
-    }));
-}
+import { Pedido, PedidoRow } from "../types";
+import { formatCodigoPedido, formatFechaEntrega } from "../utils/formato";
 
 export function mapPedidoFromDb(row: PedidoRow): Pedido {
+  // 1. Obtener los pagos ordenados de más reciente a más antiguo
+  const pagos = row.pedido_pagos ?? [];
+  const pagosOrdenados = [...pagos].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
+  const ultimoPago = pagosOrdenados.length > 0 ? pagosOrdenados[0] : null;
+
+  // 2. Calcular la suma total cobrada a partir del historial de pagos
+  const totalPagadoCalculado = pagos.reduce(
+    (acc, pago) => acc + Number(pago.monto ?? 0),
+    0
+  );
+
+  // Si pago_monto_cobrado en BD viene en 0 o null, usaremos el total calculado de la relación
+  const montoCobradoFinal =
+    Number(row.pago_monto_cobrado) > 0
+      ? Number(row.pago_monto_cobrado)
+      : totalPagadoCalculado;
+
   return {
     id: row.id,
     codigo: formatCodigoPedido(row.codigo_pedido),
@@ -43,8 +32,6 @@ export function mapPedidoFromDb(row: PedidoRow): Pedido {
       telefono: row.clientes?.telefono ?? "",
       direccion: row.clientes?.direccion ?? "",
       notas: row.clientes?.notas ?? "",
-      // Viene de la vista `vista_clientes_stats` (pedidos_totales > 1).
-      // Ver pedidosService.ts -> fetchClientesRecurrentes().
       recurrente: row.cliente_recurrente ?? false,
     },
     pieza: row.pieza_descripcion,
@@ -53,21 +40,30 @@ export function mapPedidoFromDb(row: PedidoRow): Pedido {
     fechaEntregaISO: row.fecha_entrega ?? "",
     pago: {
       estado: row.pago_estado,
-      // El método de pago "actual" se toma del último pago registrado;
-      // si aún no hay pagos, no hay método que mostrar.
-      metodo: null,
-      anticipoPorcentaje: row.pago_anticipo_pct,
-      total: row.pago_total,
-      montoCobrado: row.pago_monto_cobrado,
+      metodo: ultimoPago?.metodo ?? null,
+      anticipoPorcentaje: Number(row.pago_anticipo_pct ?? 0),
+      total: Number(row.pago_total ?? 0),
+      montoCobrado: montoCobradoFinal,
+      comprobanteUrl: ultimoPago?.comprobante_url ?? null,
+      verificado: ultimoPago?.verificado ?? false,
     },
     envio: {
       tipo: row.envio_tipo,
-      costo: row.envio_costo ?? 0,
+      costo: Number(row.envio_costo ?? 0),
       tracking: row.envio_tracking ?? "",
-      checklist: mapChecklist(row),
+      checklist: (row.pedido_checklist_items ?? []).map((item) => ({
+        id: item.id,
+        label: item.label,
+        hecho: item.hecho,
+      })),
     },
     fotoFinalUrl: row.foto_final_url,
-    historial: mapHistorial(row),
+    fotoCotizacionUrl: row.cotizaciones?.imagen_referencia_url ?? null,
+    historial: (row.pedido_eventos ?? []).map((e) => ({
+      id: e.id,
+      fecha: e.created_at,
+      texto: e.texto,
+    })),
   };
 }
 

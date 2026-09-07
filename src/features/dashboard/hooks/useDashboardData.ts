@@ -1,6 +1,8 @@
 // src/features/dashboard/hooks/useDashboardData.ts
 import { useEmpresa } from "@/context/EmpresaContext";
-import { useCallback, useEffect, useState } from "react";
+import { supabase } from "@/services/supabase/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import {
   mapCotizacionToUI,
   mapImpresoraToUI,
@@ -14,51 +16,47 @@ import {
 } from "../services/dashboardService";
 import { CotizacionUI, DashboardKpis, ImpresoraUI, ModeloUI } from "../types";
 
-type EstadoDashboard = {
-  loading: boolean;
-  error: string | null;
+type DashboardDataResponse = {
   impresoras: ImpresoraUI[];
   cotizacionesPendientes: CotizacionUI[];
   catalogo: ModeloUI[];
   kpis: DashboardKpis;
 };
 
-const ESTADO_INICIAL: EstadoDashboard = {
-  loading: true,
-  error: null,
-  impresoras: [],
-  cotizacionesPendientes: [],
-  catalogo: [],
-  kpis: {
-    cotizacionesPendientes: 0,
-    ingresosMes: 0,
-    impresorasEnUso: 0,
-    impresorasTotal: 0,
-  },
-};
-
 export function useDashboardData() {
   const { empresa } = useEmpresa();
-  const [estado, setEstado] = useState<EstadoDashboard>(ESTADO_INICIAL);
+  const queryClient = useQueryClient();
+  const empresaId = empresa?.id;
 
-  const cargar = useCallback(async () => {
-    if (!empresa?.id) return;
-    setEstado((prev) => ({ ...prev, loading: true, error: null }));
+  // Fetching unificado mediante TanStack Query
+  const { data, isLoading, isFetching, error, refetch } = useQuery<DashboardDataResponse>({
+    queryKey: ["dashboardData", empresaId],
+    queryFn: async () => {
+      if (!empresaId) {
+        return {
+          impresoras: [],
+          cotizacionesPendientes: [],
+          catalogo: [],
+          kpis: {
+            cotizacionesPendientes: 0,
+            ingresosMes: 0,
+            impresorasEnUso: 0,
+            impresorasTotal: 0,
+          },
+        };
+      }
 
-    try {
       const [impresorasRaw, pendientesRaw, ingresos, catalogoRaw] =
         await Promise.all([
-          fetchImpresoras(empresa.id),
-          fetchCotizacionesPendientes(empresa.id),
-          fetchIngresosDelMes(empresa.id),
-          fetchCatalogoProductos(empresa.id),
+          fetchImpresoras(empresaId),
+          fetchCotizacionesPendientes(empresaId),
+          fetchIngresosDelMes(empresaId),
+          fetchCatalogoProductos(empresaId),
         ]);
 
       const impresoras = impresorasRaw.map(mapImpresoraToUI);
 
-      setEstado({
-        loading: false,
-        error: null,
+      return {
         impresoras,
         cotizacionesPendientes: pendientesRaw.map(mapCotizacionToUI),
         catalogo: catalogoRaw.map(mapProductoToUI),
@@ -68,19 +66,48 @@ export function useDashboardData() {
           impresorasEnUso: impresoras.filter((i) => i.activa && i.enUso).length,
           impresorasTotal: impresoras.length,
         },
-      });
-    } catch (err) {
-      setEstado((prev) => ({
-        ...prev,
-        loading: false,
-        error: err instanceof Error ? err.message : "Error al cargar el panel",
-      }));
-    }
-  }, [empresa?.id]);
+      };
+    },
+    enabled: !!empresaId,
+  });
 
+  // Suscripción en tiempo real a cambios en la base de datos Supabase
   useEffect(() => {
-    cargar();
-  }, [cargar]);
+    if (!empresaId) return;
 
-  return { ...estado, refetch: cargar };
+    const channel = supabase
+      .channel(`dashboard-realtime-${empresaId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          filter: `empresa_id=eq.${empresaId}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["dashboardData", empresaId] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [empresaId, queryClient]);
+
+  return {
+    loading: isLoading,
+    refreshing: isFetching && !isLoading,
+    error: error instanceof Error ? error.message : null,
+    impresoras: data?.impresoras ?? [],
+    cotizacionesPendientes: data?.cotizacionesPendientes ?? [],
+    catalogo: data?.catalogo ?? [],
+    kpis: data?.kpis ?? {
+      cotizacionesPendientes: 0,
+      ingresosMes: 0,
+      impresorasEnUso: 0,
+      impresorasTotal: 0,
+    },
+    refetch,
+  };
 }

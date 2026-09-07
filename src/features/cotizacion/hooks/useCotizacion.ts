@@ -28,6 +28,21 @@ const initialForm: CotizarFormState = {
   notas: "",
 };
 
+// Campos que SÍ influyen en el cálculo técnico de la cotización.
+// Solo estos deben invalidar el `resultado` actual al cambiar.
+// El resto (imagen_referencia, datos de cliente, notas, etc.) son
+// metadatos que no deben resetear el cálculo ya realizado.
+const CAMPOS_QUE_AFECTAN_CALCULO: ReadonlySet<keyof CotizarFormState> = new Set([
+  "filamento_id",
+  "impresora_id",
+  "regla_margen_id",
+  "margen_ganancia_pct",
+  "porcentaje_riesgo",
+  "precio_personalizacion",
+  "tiempo_preparacion_minutos",
+  "tiempo_postprocesado_minutos",
+]);
+
 const crearPiezaVacia = (numero: number): PiezaFormState => ({
   id: `pieza_${Date.now()}_${numero}`,
   nombre_pieza: "",
@@ -91,7 +106,10 @@ export function useCotizacion() {
         }
         return { ...prev, [field]: value };
       });
-      setResultado(null);
+
+      if (CAMPOS_QUE_AFECTAN_CALCULO.has(field)) {
+        setResultado(null);
+      }
     },
     [],
   );
@@ -285,6 +303,11 @@ export function useCotizacion() {
           ),
           costoDisenoTotal: resultado.precio_personalizacion ?? 0,
           resultado,
+          // 🔑 FIX: sin esto, imagen_referencia_url nunca se guardaba.
+          // form.imagen_referencia es la URI local que dejó ImagePicker;
+          // el service se encarga de subirla al bucket "empresa-assets"
+          // y de persistir la URL pública resultante.
+          imagenUri: form.imagen_referencia || null,
         });
 
         setForm(initialForm);
@@ -335,6 +358,8 @@ export function useCotizacion() {
     error,
     calcular,
     guardar,
+    recargarTaller,
+    recargarClientes,
   };
 }
 

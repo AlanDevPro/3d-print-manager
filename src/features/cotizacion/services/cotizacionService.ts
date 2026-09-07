@@ -1,5 +1,7 @@
 import { supabase } from "@/services/supabase/client";
+import { decode } from "base64-arraybuffer";
 import * as Crypto from "expo-crypto";
+import { File } from "expo-file-system";
 import type { ResultadoCotizacion } from "../types";
 
 interface GuardarCotizacionParams {
@@ -13,51 +15,60 @@ interface GuardarCotizacionParams {
   filamentoId: string;
   tiempoPreparacionMinutos: number;
   tiempoPostprocesadoMinutos: number;
-  costoDisenoTotal?: number; // Nueva propiedad opcional para el costo de diseño/personalización
+  costoDisenoTotal?: number;
   resultado: ResultadoCotizacion;
-  imagenUri?: string | null; // URI local de la imagen seleccionada o capturada
+  imagenUri?: string | null;
 }
 
 /**
- * Función auxiliar para subir la imagen a Supabase Storage en Expo/React Native.
+ * Subida profesional de imágenes desde React Native / Expo Go a Supabase Storage
+ * Utilizando la API moderna de Expo FileSystem (Clase File)
  */
 async function subirImagenReferencia(
   userId: string,
   imagenUri: string
 ): Promise<string | null> {
   try {
-    // 1. Obtener la extensión del archivo
-    const fileExtension = imagenUri.split(".").pop()?.toLowerCase() || "jpeg";
+    // 1. Obtener extensión y MIME type adecuado
+    const cleanUri = imagenUri.split("?")[0];
+    const fileExtension = cleanUri.split(".").pop()?.toLowerCase() || "jpg";
+    const mimeType = fileExtension === "png" ? "image/png" : "image/jpeg";
+
+    // Generar ruta única en el Storage
     const fileName = `${userId}/${Date.now()}_${Crypto.randomUUID()}.${fileExtension}`;
     const filePath = `cotizaciones/${fileName}`;
 
-    // 2. Convertir la URI local en ArrayBuffer compatible con React Native / Expo
-    const response = await fetch(imagenUri);
-    const blob = await response.blob();
-    const arrayBuffer = await new Response(blob).arrayBuffer();
+    // 2. Instanciar el archivo local usando la API moderna File
+    const file = new File(imagenUri);
 
-    // 3. Subir el archivo al bucket "empresa-assets"
-    const { error: uploadError } = await supabase.storage
+    // 3. Obtener el contenido Base64 de la instancia
+    const base64Data = await file.base64();
+
+    // 4. Convertir Base64 a ArrayBuffer para compatibilidad total con Supabase JS
+    const arrayBuffer = decode(base64Data);
+
+    // 5. Subir a Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
       .from("empresa-assets")
       .upload(filePath, arrayBuffer, {
-        contentType: `image/${fileExtension === "jpg" ? "jpeg" : fileExtension}`,
-        upsert: false,
+        contentType: mimeType,
+        upsert: true,
       });
 
     if (uploadError) {
-      console.error("Error al subir la imagen al Storage:", uploadError.message);
-      throw uploadError;
+      console.error("❌ Error de Supabase Storage:", uploadError);
+      throw new Error(`Error en Storage: ${uploadError.message}`);
     }
 
-    // 4. Obtener y retornar la URL pública
+    // 6. Obtener la URL pública del archivo subido
     const { data: publicUrlData } = supabase.storage
       .from("empresa-assets")
-      .getPublicUrl(filePath);
+      .getPublicUrl(uploadData.path);
 
     return publicUrlData.publicUrl;
   } catch (error) {
-    console.error("Error en subirImagenReferencia:", error);
-    throw error;
+    console.error("❌ Error detallado en subirImagenReferencia:", error);
+    return null;
   }
 }
 
@@ -76,16 +87,15 @@ export async function guardarCotizacion({
   resultado,
   imagenUri,
 }: GuardarCotizacionParams) {
-  // Generar token único para el voucher público (compatible con Expo Go / React Native)
   const tokenPublico = Crypto.randomUUID();
 
-  // Subir imagen a Storage si fue proporcionada
+  // Subir imagen a Storage si fue proporcionada una URI válida
   let imagenReferenciaUrl: string | null = null;
   if (imagenUri) {
     imagenReferenciaUrl = await subirImagenReferencia(userId, imagenUri);
   }
 
-  // 1. Cabecera de la cotización con costo_diseno_total, token_publico e imagen_referencia_url
+  // 1. Guardar la cabecera de la cotización
   const { data: cotizacion, error: errorCotizacion } = await supabase
     .from("cotizaciones")
     .insert({
@@ -113,7 +123,7 @@ export async function guardarCotizacion({
 
   if (errorCotizacion) throw errorCotizacion;
 
-  // 2. Un renglón por cada pieza cotizada
+  // 2. Insertar renglones de la cotización
   const itemsAInsertar = resultado.piezas.map((pieza) => ({
     cotizacion_id: cotizacion.id,
     impresora_id: impresoraId,

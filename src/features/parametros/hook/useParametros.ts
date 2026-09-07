@@ -1,7 +1,8 @@
 // src/features/parametros/hooks/useParametros.ts
 import { useCallback, useEffect, useState } from "react";
 import { parametrosService } from "../services/parametrosService";
-import { PARAMETROS_VACIOS, ParametrosOperativos } from "../types";
+import { PARAMETROS_VACIOS, ParametrosOperativos, ReglaMargenGanancia } from "../types";
+import { supabase } from "@/services/supabase/client";
 
 interface UseParametrosResult {
   parametros: ParametrosOperativos | null;
@@ -10,27 +11,24 @@ interface UseParametrosResult {
   error: string | null;
   actualizarSeccion: <K extends keyof ParametrosOperativos>(
     seccion: K,
-    valores: Partial<ParametrosOperativos[K]>,
+    valores: Partial<ParametrosOperativos[K]>
   ) => void;
   guardarCambios: () => Promise<void>;
   recargar: () => Promise<void>;
+  // Métodos reactivos expuestos para mutaciones optimistas
+  agregarRegla: (regla: Omit<ReglaMargenGanancia, "id">) => Promise<void>;
+  eliminarRegla: (reglaId: string) => Promise<void>;
 }
 
-export function useParametros(userId: string | null): UseParametrosResult {
-  const [parametros, setParametros] = useState<ParametrosOperativos | null>(
-    null,
-  );
+export function useParametros(empresaId: string | null): UseParametrosResult {
+  const [parametros, setParametros] = useState<ParametrosOperativos | null>(null);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 1. Carga inicial remota/local
   const cargar = useCallback(async () => {
-    console.log("🚀 [Hook Check] Entrando a cargar(). userId actual:", userId);
-
-    if (!userId) {
-      console.warn(
-        "⚠️ [Hook Warning] userId es NULL, UNDEFINED o VACÍO. No se invocará la BD.",
-      );
+    if (!empresaId) {
       setCargando(false);
       return;
     }
@@ -39,38 +37,63 @@ export function useParametros(userId: string | null): UseParametrosResult {
     setError(null);
 
     try {
-      console.log(
-        "📞 [Hook Exec] Invocando parametrosService.getParametros para userId:",
-        userId,
-      );
-      const data = await parametrosService.getParametros(userId);
-
-      console.log(
-        "🎉 [Hook Success] Datos recibidos con éxito en el Hook:",
-        data,
-      );
+      const data = await parametrosService.getParametros(empresaId);
       setParametros(data);
     } catch (e) {
-      console.error(
-        "💥 [Hook Error] Falló parametrosService.getParametros:",
-        e,
-      );
       const msg = e instanceof Error ? e.message : "Error al cargar parámetros";
       setError(msg);
-      // Fallback a estructura estrictamente VACÍA sin datos precargados
-      setParametros({ ...PARAMETROS_VACIOS, userId });
+      setParametros({ ...PARAMETROS_VACIOS, empresaId });
     } finally {
       setCargando(false);
     }
-  }, [userId]);
+  }, [empresaId]);
 
+  // 2. Suscripción en Tiempo Real con Supabase Realtime
   useEffect(() => {
-    console.log(
-      "🔄 [Hook Effect] Se ejecutó useEffect de useParametros. Re-evaluando dependencia userId...",
-    );
     cargar();
-  }, [cargar]);
 
+    if (!empresaId) return;
+
+    const channel = supabase
+      .channel(`parametros-empresa-${empresaId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "configuracion_empresa",
+          filter: `empresa_id=eq.${empresaId}`,
+        },
+        () => cargar()
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "impresoras",
+          filter: `empresa_id=eq.${empresaId}`,
+        },
+        () => cargar()
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "reglas_margen_ganancia",
+          filter: `empresa_id=eq.${empresaId}`,
+        },
+        () => cargar()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [empresaId, cargar]);
+
+  // 3. Mutación Local para Formulario Temporal
   const actualizarSeccion = useCallback<
     UseParametrosResult["actualizarSeccion"]
   >((seccion, valores) => {
@@ -83,31 +106,74 @@ export function useParametros(userId: string | null): UseParametrosResult {
     });
   }, []);
 
+  // 4. Guardado Principal
   const guardarCambios = useCallback(async () => {
-    if (!parametros || !userId) {
-      console.warn(
-        "⚠️ [Hook Warning] No se puede guardar: parametros o userId ausentes.",
-        { parametros, userId },
-      );
-      return;
-    }
+    if (!parametros || !empresaId) return;
 
     setGuardando(true);
     setError(null);
     try {
-      console.log("💾 [Hook Save] Invocando saveConfiguracion...");
-      await parametrosService.saveConfiguracion(userId, parametros);
-      console.log("✅ [Hook Save Success] Guardado exitoso en BD.");
+      await parametrosService.saveConfiguracion(empresaId, parametros);
     } catch (e) {
-      console.error("💥 [Hook Save Error] Falló el guardado:", e);
-      const msg =
-        e instanceof Error ? e.message : "Error al guardar parámetros";
+      const msg = e instanceof Error ? e.message : "Error al guardar parámetros";
       setError(msg);
       throw e;
     } finally {
       setGuardando(false);
     }
-  }, [parametros, userId]);
+  }, [parametros, empresaId]);
+
+  // 5. Mutaciones Reactivas Optimistas para Reglas
+  const agregarRegla = useCallback(
+    async (regla: Omit<ReglaMargenGanancia, "id">) => {
+      if (!empresaId) return;
+      try {
+        const nuevaRegla = await parametrosService.addReglaMargen(empresaId, regla);
+        setParametros((prev) => {
+          if (!prev) return prev;
+          const reglasActuales = prev.tarifas?.reglasMargen ?? [];
+          return {
+            ...prev,
+            tarifas: {
+              ...prev.tarifas,
+              monedaPrincipal: prev.tarifas?.monedaPrincipal ?? "BOB",
+              tarifaElectricaKwh: prev.tarifas?.tarifaElectricaKwh ?? 0.8,
+              reglasMargen: [...reglasActuales, nuevaRegla],
+            },
+          };
+        });
+      } catch (e) {
+        await cargar();
+        throw e;
+      }
+    },
+    [empresaId, cargar]
+  );
+
+  const eliminarRegla = useCallback(
+    async (reglaId: string) => {
+      try {
+        setParametros((prev) => {
+          if (!prev) return prev;
+          const reglasActuales = prev.tarifas?.reglasMargen ?? [];
+          return {
+            ...prev,
+            tarifas: {
+              ...prev.tarifas,
+              monedaPrincipal: prev.tarifas?.monedaPrincipal ?? "BOB",
+              tarifaElectricaKwh: prev.tarifas?.tarifaElectricaKwh ?? 0.8,
+              reglasMargen: reglasActuales.filter((r) => r.id !== reglaId),
+            },
+          };
+        });
+        await parametrosService.deleteReglaMargen(reglaId);
+      } catch (e) {
+        await cargar();
+        throw e;
+      }
+    },
+    [cargar]
+  );
 
   return {
     parametros,
@@ -117,5 +183,7 @@ export function useParametros(userId: string | null): UseParametrosResult {
     actualizarSeccion,
     guardarCambios,
     recargar: cargar,
+    agregarRegla,
+    eliminarRegla,
   };
 }

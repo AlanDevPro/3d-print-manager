@@ -1,11 +1,7 @@
 // app/(tabs)/pedidos.tsx
 // Panel de pedidos — JEDD3DLAB
 
-import { useTheme } from "@/hooks/useTheme";
-import React, { useState } from "react";
-import { FlatList, StyleSheet } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-
+import { useConfiguracionTaller } from "@/context/ConfiguracionTallerContext";
 import {
   DetallePedidoModal,
   Pedido,
@@ -15,8 +11,10 @@ import {
   usePedidoActions,
   usePedidos,
 } from "@/features/pedidos";
-
-import { useConfiguracionTaller } from "@/context/ConfiguracionTallerContext";
+import { useTheme } from "@/hooks/useTheme";
+import React, { useState } from "react";
+import { FlatList, StyleSheet } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function PedidosScreen() {
   const { theme } = useTheme();
@@ -35,12 +33,15 @@ export default function PedidosScreen() {
     actualizarPedidoLocal,
   } = usePedidos();
 
+  // Desestructuración mejorada de acciones requeridas por la vista y el modal
   const {
     cambiarEstado,
     marcarComoPagado,
+    confirmarVerificacionPago,
     toggleChecklist,
     abrirWhatsapp,
     llamarCliente,
+    cargandoConfirmacion,
   } = usePedidoActions(actualizarPedidoLocal, recargar);
 
   const { configuracionRaw } = useConfiguracionTaller();
@@ -49,49 +50,43 @@ export default function PedidosScreen() {
     ? (pedidosFiltrados.find((p) => p.id === pedidoActivo.id) ?? pedidoActivo)
     : null;
 
-  const qrUrl =
-    configuracionRaw?.qr_pago_url ??
-    configuracionRaw?.qr_url ??
-    configuracionRaw?.url_qr ??
-    undefined;
-
-  // Determinar qué icono y mensaje mostrar según el filtro activo
   const getEmptyStateProps = () => {
     switch (filtro) {
-      case "completados":
+      case "entregado":
         return {
           icono: "checkmark-done-circle-outline" as const,
           mensaje: "Sin pedidos completados",
           subtitulo: "Los pedidos finalizados aparecerán aquí automáticamente",
-          accionSugerida: "Los pedidos se completan desde el detalle de cada uno"
+          accionSugerida: "Los pedidos se completan desde el detalle de cada uno",
         };
-      case "en-progreso":
+      case "en_impresion":
         return {
           icono: "time-outline" as const,
           mensaje: "Sin pedidos en progreso",
           subtitulo: "Los pedidos que estás fabricando se mostrarán aquí",
-          accionSugerida: "Inicia un pedido desde el detalle para verlo aquí"
+          accionSugerida: "Inicia un pedido desde el detalle para verlo aquí",
         };
-      case "urgentes":
+      case "listo":
         return {
           icono: "alert-circle-outline" as const,
           mensaje: "Sin pedidos urgentes",
           subtitulo: "Los pedidos marcados como urgentes aparecerán aquí",
-          accionSugerida: "Marca un pedido como urgente desde su detalle"
+          accionSugerida: "Marca un pedido como urgente desde su detalle",
         };
-      case "pendientes-pago":
+      case "pendiente":
         return {
           icono: "cash-outline" as const,
           mensaje: "Sin pedidos pendientes de pago",
-          subtitulo: "Los pedidos que esperan confirmación de pago se listan aquí",
-          accionSugerida: "Los pedidos se marcan como pagados desde el detalle"
+          subtitulo:
+            "Los pedidos que esperan confirmación de pago se listan aquí",
+          accionSugerida: "Los pedidos se marcan como pagados desde el detalle",
         };
       default:
         return {
           icono: "file-tray-outline" as const,
           mensaje: "No hay pedidos registrados",
           subtitulo: "Comienza creando tu primer pedido desde la cotización",
-          accionSugerida: "Crea un pedido desde el módulo de cotización"
+          accionSugerida: "Crea un pedido desde el módulo de cotización",
         };
     }
   };
@@ -129,7 +124,7 @@ export default function PedidosScreen() {
           />
         )}
         ListEmptyComponent={
-          <PedidosEmptyState 
+          <PedidosEmptyState
             theme={theme}
             icono={emptyStateProps.icono}
             mensaje={emptyStateProps.mensaje}
@@ -142,13 +137,13 @@ export default function PedidosScreen() {
       <DetallePedidoModal
         pedido={pedidoActivoActualizado}
         theme={theme}
-        qrUrl={qrUrl}
         onClose={() => setPedidoActivo(null)}
         onCambiarEstado={cambiarEstado}
         onToggleChecklist={toggleChecklist}
-        onMarcarPagado={marcarComoPagado}
+        onVerificarPago={confirmarVerificacionPago}
         onLlamar={llamarCliente}
         onWhatsapp={abrirWhatsapp}
+        cargandoConfirmacion={cargandoConfirmacion}
       />
     </SafeAreaView>
   );

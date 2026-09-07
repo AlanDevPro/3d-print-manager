@@ -1,9 +1,6 @@
-// src/features/pedidos/components/DetallePedidoModal.tsx
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
-import React, { useState } from "react";
+import React from "react";
 import {
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -26,10 +23,10 @@ interface DetallePedidoModalProps {
   onClose: () => void;
   onCambiarEstado: (pedido: Pedido, estado: EstadoPedido) => void;
   onToggleChecklist: (pedido: Pedido, itemId: string) => void;
-  onSubirComprobante: (pedido: Pedido, imageUri: string) => Promise<void>;
+  onVerificarPago: (pedido: Pedido) => void; // 👈 reemplaza onSubirComprobante
   onLlamar: (pedido: Pedido) => void;
   onWhatsapp: (pedido: Pedido, mensaje: string) => void;
-  qrUrl?: string;
+  cargandoConfirmacion?: boolean;
 }
 
 export function DetallePedidoModal({
@@ -38,50 +35,12 @@ export function DetallePedidoModal({
   onClose,
   onCambiarEstado,
   onToggleChecklist,
-  onSubirComprobante,
+  onVerificarPago,
+  cargandoConfirmacion = false,
   onLlamar,
   onWhatsapp,
-  qrUrl,
 }: DetallePedidoModalProps) {
-  const [subiendoComprobante, setSubiendoComprobante] = useState(false);
-  const { generarRecordatorio, generandoPdf } = useRecordatorioPdf();
-
-  const handleSeleccionarYSubirComprobante = async () => {
-    if (!pedido) return;
-
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "Permisos requeridos",
-        "Necesitamos acceso a tu galería para adjuntar el comprobante."
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      const selectedUri = result.assets[0].uri;
-      try {
-        setSubiendoComprobante(true);
-        await onSubirComprobante(pedido, selectedUri);
-        Alert.alert("Éxito", "Comprobante registrado correctamente.");
-      } catch (error) {
-        Alert.alert("Error", "No se pudo subir el comprobante.");
-      } finally {
-        setSubiendoComprobante(false);
-      }
-    }
-  };
-
-  const handleGenerarPdfRecordatorio = async () => {
-    if (!pedido) return;
-    await generarRecordatorio(pedido, qrUrl);
-  };
+  
 
   return (
     <Modal
@@ -155,7 +114,7 @@ export function DetallePedidoModal({
                 </Text>
               </View>
 
-              {/* Fecha limite de entrega */}
+              {/* Fecha límite de entrega */}
               <View style={styles.fechaRow}>
                 <Ionicons
                   name="calendar-clear-outline"
@@ -191,14 +150,11 @@ export function DetallePedidoModal({
               />
 
               <PagoSeccion
-                theme={theme}
-                pedido={pedido}
-                qrUrl={qrUrl}
-                onSubirComprobante={handleSeleccionarYSubirComprobante}
-                onRecordarCobro={handleGenerarPdfRecordatorio}
-                cargandoComprobante={subiendoComprobante}
-                generandoPdf={generandoPdf}
-              />
+  theme={theme}
+  pedido={pedido}
+  onVerificarPago={() => onVerificarPago(pedido)}
+  cargandoConfirmacion={cargandoConfirmacion}
+/>
 
               <EnvioSeccion
                 theme={theme}

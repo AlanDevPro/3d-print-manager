@@ -1,6 +1,8 @@
+// src/features/parametros/hooks/useReglasMargen.ts
 import { useState } from "react";
 import { ReglaMargenGanancia } from "../types";
 import { parametrosService } from "../services/parametrosService";
+import { useConfiguracionTaller } from "@/context/ConfiguracionTallerContext";
 
 interface UseReglasMargenProps {
   reglas: ReglaMargenGanancia[];
@@ -18,6 +20,8 @@ export function useReglasMargen({
   const [porcentaje, setPorcentaje] = useState(30);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const { recargar } = useConfiguracionTaller();
+
   const toggleFormulario = () => setMostrandoForm((prev) => !prev);
 
   const agregarRegla = async () => {
@@ -30,6 +34,7 @@ export function useReglasMargen({
           porcentaje,
         });
         onReglasChange([...reglas, nuevaReglaBD]);
+        await recargar(); // Sincroniza el estado global inmediatamente
       } else {
         const nuevaReglaLocal: ReglaMargenGanancia = {
           id: Date.now().toString(),
@@ -52,6 +57,7 @@ export function useReglasMargen({
     try {
       if (userId) {
         await parametrosService.deleteReglaMargen(id);
+        await recargar(); // Invalida y recupera la lista real desde Supabase
       }
       onReglasChange(reglas.filter((r) => r.id !== id));
     } catch (error) {

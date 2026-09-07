@@ -8,7 +8,8 @@ import { EstadoTallerSection } from "@/features/dashboard/components/EstadoTalle
 import { KpiCarousel } from "@/features/dashboard/components/KpiCarousel";
 import { useDashboardData } from "@/features/dashboard/hooks/useDashboardData";
 import { useTheme } from "@/hooks/useTheme";
-import React from "react";
+import { useFocusEffect } from "expo-router";
+import React, { useCallback } from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -26,6 +27,7 @@ export default function InicioScreen() {
 
   const {
     loading,
+    refreshing,
     error,
     impresoras,
     cotizacionesPendientes,
@@ -33,6 +35,13 @@ export default function InicioScreen() {
     kpis,
     refetch,
   } = useDashboardData();
+
+  // Refrescar los datos cada vez que la pestaña entra en foco
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch])
+  );
 
   if (loading) {
     return (
@@ -43,7 +52,7 @@ export default function InicioScreen() {
           { backgroundColor: theme.bgPrimary },
         ]}
       >
-        <ActivityIndicator color={theme.primary} />
+        <ActivityIndicator color={theme.primary} size="large" />
       </SafeAreaView>
     );
   }
@@ -56,13 +65,13 @@ export default function InicioScreen() {
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={
-          <RefreshControl refreshing={false} onRefresh={refetch} />
+          <RefreshControl refreshing={refreshing} onRefresh={refetch} />
         }
       >
         <BrandHeader theme={theme} nombre={nombre} />
 
         {error && (
-          <Text style={{ color: "#EF4444", fontSize: 12 }}>
+          <Text style={styles.errorText}>
             No se pudo actualizar el panel: {error}
           </Text>
         )}
@@ -84,4 +93,5 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   centered: { alignItems: "center", justifyContent: "center" },
   content: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 32, gap: 18 },
+  errorText: { color: "#EF4444", fontSize: 12 },
 });

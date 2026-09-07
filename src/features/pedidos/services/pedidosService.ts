@@ -1,19 +1,13 @@
-// Toda la comunicación con Supabase para Pedidos vive aquí.
-// Los hooks NUNCA llaman a supabase.from(...) directamente: siempre pasan
-// por este service, así puedes cambiar de backend sin tocar la UI.
-
 import { supabase } from "@/services/supabase/client";
 import {
   EstadoPedido,
   MetodoPago,
   PedidoRow,
   RegistrarPagoInput,
-  TipoEnvio,
   TipoPago,
 } from "../types";
 
-// Select con todas las relaciones que necesita la pantalla de Pedidos.
-// (clientes, checklist, historial de eventos)
+
 export const SELECT_PEDIDO_COMPLETO = `
   id, empresa_id, creado_por, cotizacion_id, cliente_id, producto_id, codigo_pedido,
   pieza_descripcion, estado, fecha_entrega,
@@ -21,15 +15,12 @@ export const SELECT_PEDIDO_COMPLETO = `
   envio_tipo, envio_costo, envio_tracking,
   foto_final_url, created_at, updated_at,
   clientes ( id, nombre, telefono, direccion, notas ),
+  cotizaciones ( id, imagen_referencia_url ),
   pedido_checklist_items ( id, pedido_id, label, hecho, orden ),
-  pedido_eventos ( id, pedido_id, texto, created_at )
+  pedido_eventos ( id, pedido_id, texto, created_at ),
+  pedido_pagos ( id, pedido_id, monto, metodo, tipo, comprobante_url, verificado, created_at )
 `;
 
-/**
- * Trae los pedidos de la empresa activa. El filtro por empresa_id se hace
- * explícito aquí (no se delega solo a RLS): RLS es la última línea de
- * defensa, pero el filtro de negocio siempre debe ir en la query.
- */
 export async function fetchPedidos(empresaId: string): Promise<PedidoRow[]> {
   if (!empresaId) return [];
 
@@ -45,11 +36,6 @@ export async function fetchPedidos(empresaId: string): Promise<PedidoRow[]> {
   return attachClienteRecurrente(rows);
 }
 
-/**
- * Marca `cliente_recurrente` en cada fila usando la vista `vista_clientes_stats`
- * (pedidos_totales > 1). Se incluye un bloque try/catch para evitar que fallos
- * secundarios de la vista bloqueen la carga global de pedidos.
- */
 async function attachClienteRecurrente(
   rows: PedidoRow[],
 ): Promise<PedidoRow[]> {
@@ -68,7 +54,7 @@ async function attachClienteRecurrente(
     }
 
     const recurrentesPorCliente = new Map<string, boolean>(
-      (data ?? []).map((r: any) => [r.cliente_id, r.recurrente]),
+      (data ?? []).map((r: any) => [r.cliente_id, Boolean(r.recurrente)]),
     );
 
     return rows.map((row) => ({
@@ -77,19 +63,10 @@ async function attachClienteRecurrente(
     }));
   } catch (e) {
     console.warn("Excepción al consultar vista_clientes_stats:", e);
-    return rows; // Devuelve las filas originales sin romper la ejecución
+    return rows;
   }
 }
 
-/**
- * Cambia el estado de un pedido. El historial ("Estado cambiado a...") se
- * escribe solo en `pedido_eventos` gracias al trigger `trg_log_cambio_estado`
- * — no hace falta insertarlo manualmente.
- *
- * OJO: si intentas pasar de "pendiente" a "en_impresion" sin el anticipo
- * mínimo cobrado, Supabase rechaza el UPDATE (trigger
- * `trg_validar_anticipo`). Ese error debe mostrarse tal cual al usuario.
- */
 export async function actualizarEstadoPedido(
   pedidoId: string,
   nuevoEstado: EstadoPedido,
@@ -102,36 +79,72 @@ export async function actualizarEstadoPedido(
   if (error) throw error;
 }
 
-/**
- * Registra un cobro (anticipo, abono o pago final). El trigger
- * `trg_procesar_pago` se encarga de:
- *  - actualizar pedidos.pago_monto_cobrado / pago_estado
- *  - crear el ingreso correspondiente en Finanzas
- *  - dejar constancia en pedido_eventos
- * Por eso este service NO actualiza esas columnas a mano.
- */
 export async function registrarPagoPedido(
   input: RegistrarPagoInput,
 ): Promise<void> {
+  // Guardrail: Asegura que nunca entre un monto <= 0 a la BD
+  if (
+    typeof input.monto !== "number" ||
+    isNaN(input.monto) ||
+    input.monto <= 0
+  ) {
+    throw new Error(
+      `El monto a registrar debe ser un número positivo mayor a 0. Recibido: ${input.monto}`,
+    );
+  }
+
   const { error } = await supabase.from("pedido_pagos").insert({
     pedido_id: input.pedidoId,
     monto: input.monto,
     metodo: input.metodo,
     tipo: input.tipo,
     comprobante_url: input.comprobanteUrl ?? null,
+    verificado: false, // Por defecto entra pendiente hasta ser verificado
   });
 
   if (error) throw error;
 }
 
-/** Atajo para "Marcar como pagado": cobra el saldo pendiente completo. */
+/**
+ * Marca el saldo pendiente registrando un nuevo pago y verificándolo de forma atómica.
+ */
 export async function marcarPedidoComoPagado(
   pedidoId: string,
   saldoPendiente: number,
   metodo: MetodoPago,
 ): Promise<void> {
+  if (saldoPendiente <= 0) {
+    console.warn(
+      `[marcarPedidoComoPagado] El pedido ${pedidoId} ya no tiene saldo pendiente por pagar (${saldoPendiente}).`,
+    );
+    return;
+  }
+
   const tipo: TipoPago = "pago_final";
+  
+  // 1. Registrar el pago final pendiente
   await registrarPagoPedido({ pedidoId, monto: saldoPendiente, metodo, tipo });
+  
+  // 2. Verificar el pago recién ingresado
+  await verificarPagoPedido(pedidoId);
+}
+
+/**
+ * Llama al RPC que actualiza el estado del pago pendiente (`verificado = true`) 
+ * sin sobreescribir el monto ni crear un duplicado en `pedido_pagos`.
+ */
+export async function verificarPagoPedido(pedidoId: string): Promise<void> {
+  if (!pedidoId) {
+    throw new Error("El ID del pedido es requerido para verificar el pago.");
+  }
+
+  const { error } = await supabase.rpc("verificar_pago_pedido", {
+    p_pedido_id: pedidoId,
+  });
+
+  if (error) {
+    throw new Error(`Error al verificar el pago: ${error.message}`);
+  }
 }
 
 export async function toggleChecklistItem(
@@ -146,7 +159,6 @@ export async function toggleChecklistItem(
   if (error) throw error;
 }
 
-/** Evento manual (ej. "Recordatorio de cobro enviado por WhatsApp"). */
 export async function registrarEventoPedido(
   pedidoId: string,
   texto: string,
@@ -158,69 +170,6 @@ export async function registrarEventoPedido(
   if (error) throw error;
 }
 
-// --- Crear pedido en estado "pendiente" ---
-
-export interface CrearPedidoPendienteInput {
-  empresaId: string;
-  clienteId: string;
-  cotizacionId?: string | null;
-  productoId?: string | null;
-  piezaDescripcion: string;
-  pagoTotal: number;
-  pagoAnticipoPct?: number;
-  fechaEntrega?: string | null;
-  envioTipo?: TipoEnvio;
-  envioCosto?: number;
-}
-
-/**
- * Crea un pedido nuevo en estado "pendiente" vinculado a una empresa y cliente
- * (y opcionalmente a una cotización). Se usa justo después de que
- * CotizacionResumenCard guarda cliente + cotización, al presionar
- * "Enviar por WhatsApp".
- */
-export async function crearPedidoPendiente(
-  input: CrearPedidoPendienteInput,
-): Promise<PedidoRow> {
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) throw userError;
-  if (!user) throw new Error("No hay una sesión de usuario activa.");
-  if (!input.empresaId)
-    throw new Error("Se requiere empresaId para crear un pedido.");
-
-  const { data, error } = await supabase
-    .from("pedidos")
-    .insert({
-      empresa_id: input.empresaId,
-      creado_por: user.id,
-      cliente_id: input.clienteId,
-      cotizacion_id: input.cotizacionId ?? null,
-      producto_id: input.productoId ?? null,
-      pieza_descripcion: input.piezaDescripcion,
-      estado: "pendiente",
-      fecha_entrega: input.fechaEntrega ?? null,
-      pago_total: input.pagoTotal,
-      pago_anticipo_pct: input.pagoAnticipoPct ?? 0,
-      pago_monto_cobrado: 0,
-      pago_estado: "sin_pagar",
-      envio_tipo: input.envioTipo ?? "recogida",
-      envio_costo: input.envioCosto ?? 0,
-    })
-    .select(SELECT_PEDIDO_COMPLETO)
-    .single();
-
-  if (error) throw error;
-  return data as unknown as PedidoRow;
-}
-
-/**
- * Suscripción realtime simplificada a nivel de tabla `pedidos` filtrando por `empresa_id`.
- * Evita suscripciones mal configuradas en tablas secundarias sin `empresa_id`.
- */
 export function suscribirCambiosPedidos(
   empresaId: string,
   onChange: () => void,
@@ -236,6 +185,15 @@ export function suscribirCambiosPedidos(
         schema: "public",
         table: "pedidos",
         filter: `empresa_id=eq.${empresaId}`,
+      },
+      onChange,
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "pedido_pagos",
       },
       onChange,
     )

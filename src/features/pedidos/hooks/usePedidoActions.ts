@@ -1,16 +1,12 @@
-// src/features/pedidos/hooks/usePedidoActions.ts
-// Acciones que mutan un pedido. Reciben `actualizarPedidoLocal` de usePedidos
-// para reflejar el cambio al instante (optimista) y luego confirman/corrigen
-// contra Supabase. Si la base de datos rechaza el cambio (ej. el trigger de
-// anticipo mínimo), se revierte el estado local y se expone el error.
-
 import * as Linking from "expo-linking";
 import { useCallback, useState } from "react";
+import { Alert } from "react-native";
 import { estadoConfig } from "../constants";
 import {
-    actualizarEstadoPedido,
-    marcarPedidoComoPagado,
-    toggleChecklistItem as toggleChecklistItemService,
+  actualizarEstadoPedido,
+  marcarPedidoComoPagado,
+  toggleChecklistItem as toggleChecklistItemService,
+  verificarPagoPedido as verificarPagoPedidoService,
 } from "../services/pedidosService";
 import { EstadoPedido, MetodoPago, Pedido } from "../types";
 
@@ -19,6 +15,7 @@ export function usePedidoActions(
   recargar: () => Promise<void>,
 ) {
   const [errorAccion, setErrorAccion] = useState<string | null>(null);
+  const [cargandoConfirmacion, setCargandoConfirmacion] = useState(false);
 
   const cambiarEstado = useCallback(
     async (pedido: Pedido, nuevoEstado: EstadoPedido) => {
@@ -27,11 +24,8 @@ export function usePedidoActions(
       try {
         setErrorAccion(null);
         await actualizarEstadoPedido(pedido.id, nuevoEstado);
-        // El historial ("Estado cambiado a...") lo escribe el trigger en la BD;
-        // recargamos para traer ese evento nuevo al modal.
         await recargar();
       } catch (e: any) {
-        // Revierte: probablemente faltó el anticipo mínimo (trigger de la BD).
         actualizarPedidoLocal(pedido.id, { estado: estadoAnterior });
         setErrorAccion(
           e.message?.includes("anticipo")
@@ -65,6 +59,61 @@ export function usePedidoActions(
     },
     [actualizarPedidoLocal, recargar],
   );
+
+  const confirmarVerificacionPago = useCallback(
+  async (pedido: Pedido) => {
+    if (pedido.pago.verificado) return; // ya verificado, no vuelve a ejecutar
+
+    const estadoAnterior = pedido.estado;
+    const pagoAnterior = pedido.pago;
+    const checklistAnterior = pedido.envio.checklist;
+
+    const montoAnticipo =
+      Math.round(pedido.pago.total * (pedido.pago.anticipoPorcentaje / 100) * 100) / 100;
+
+    // Actualización optimista local: refleja lo que hará la función SQL
+    actualizarPedidoLocal(pedido.id, {
+      estado: estadoAnterior === "pendiente" ? "en_impresion" : estadoAnterior,
+      pago: {
+        ...pedido.pago,
+        verificado: true,
+        estado: "anticipo",
+        montoCobrado: montoAnticipo,
+      },
+      envio: {
+        ...pedido.envio,
+        checklist: checklistAnterior.map((item, index) =>
+          index === 0 ? { ...item, hecho: true } : item
+        ),
+      },
+    });
+
+    try {
+      setCargandoConfirmacion(true);
+      setErrorAccion(null);
+
+      await verificarPagoPedidoService(pedido.id);
+      await recargar();
+
+      Alert.alert(
+        "Pago verificado",
+        "El anticipo fue verificado. El pedido pasó a producción."
+      );
+    } catch (e: any) {
+      actualizarPedidoLocal(pedido.id, {
+        estado: estadoAnterior,
+        pago: pagoAnterior,
+        envio: { ...pedido.envio, checklist: checklistAnterior },
+      });
+      const msg = e.message || "No se pudo verificar el pago.";
+      setErrorAccion(msg);
+      Alert.alert("Error", msg);
+    } finally {
+      setCargandoConfirmacion(false);
+    }
+  },
+  [actualizarPedidoLocal, recargar]
+);
 
   const toggleChecklist = useCallback(
     async (pedido: Pedido, itemId: string) => {
@@ -105,8 +154,10 @@ export function usePedidoActions(
 
   return {
     errorAccion,
+    cargandoConfirmacion,
     cambiarEstado,
     marcarComoPagado,
+    confirmarVerificacionPago,
     toggleChecklist,
     abrirWhatsapp,
     llamarCliente,

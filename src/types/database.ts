@@ -1,3 +1,4 @@
+//src/types/database.ts
 // ============================================================================
 // TIPOS QUE REFLEJAN LAS TABLAS DE SUPABASE (VERIFICADO CONTRA information_schema)
 // ============================================================================
