@@ -1,514 +1,4 @@
-import * as Linking from "expo-linking";
-import { useCallback, useState } from "react";
-import { Alert } from "react-native";
-import { estadoConfig } from "../constants";
-import {
-  actualizarEstadoPedido,
-  marcarPedidoComoPagado,
-  toggleChecklistItem as toggleChecklistItemService,
-  verificarPagoPedido as verificarPagoPedidoService,
-} from "../services/pedidosService";
-import { EstadoPedido, MetodoPago, Pedido } from "../types";
-
-export function usePedidoActions(
-  actualizarPedidoLocal: (id: string, cambios: Partial<Pedido>) => void,
-  recargar: () => Promise<void>,
-) {
-  const [errorAccion, setErrorAccion] = useState<string | null>(null);
-  const [cargandoConfirmacion, setCargandoConfirmacion] = useState(false);
-
-  const cambiarEstado = useCallback(
-    async (pedido: Pedido, nuevoEstado: EstadoPedido) => {
-      const estadoAnterior = pedido.estado;
-      actualizarPedidoLocal(pedido.id, { estado: nuevoEstado });
-      try {
-        setErrorAccion(null);
-        await actualizarEstadoPedido(pedido.id, nuevoEstado);
-        await recargar();
-      } catch (e: any) {
-        actualizarPedidoLocal(pedido.id, { estado: estadoAnterior });
-        setErrorAccion(
-          e.message?.includes("anticipo")
-            ? e.message
-            : "No se pudo cambiar el estado del pedido.",
-        );
-      }
-    },
-    [actualizarPedidoLocal, recargar],
-  );
-
-  const marcarComoPagado = useCallback(
-    async (pedido: Pedido, metodo: MetodoPago = "efectivo") => {
-      const saldo = pedido.pago.total - pedido.pago.montoCobrado;
-      if (saldo <= 0) return;
-      actualizarPedidoLocal(pedido.id, {
-        pago: {
-          ...pedido.pago,
-          estado: "pagado",
-          montoCobrado: pedido.pago.total,
-        },
-      });
-      try {
-        setErrorAccion(null);
-        await marcarPedidoComoPagado(pedido.id, saldo, metodo);
-        await recargar();
-      } catch (e: any) {
-        actualizarPedidoLocal(pedido.id, { pago: pedido.pago });
-        setErrorAccion("No se pudo registrar el pago.");
-      }
-    },
-    [actualizarPedidoLocal, recargar],
-  );
-
-  const confirmarVerificacionPago = useCallback(
-  async (pedido: Pedido) => {
-    if (pedido.pago.verificado) return; // ya verificado, no vuelve a ejecutar
-
-    const estadoAnterior = pedido.estado;
-    const pagoAnterior = pedido.pago;
-    const checklistAnterior = pedido.envio.checklist;
-
-    const montoAnticipo =
-      Math.round(pedido.pago.total * (pedido.pago.anticipoPorcentaje / 100) * 100) / 100;
-
-    // Actualización optimista local: refleja lo que hará la función SQL
-    actualizarPedidoLocal(pedido.id, {
-      estado: estadoAnterior === "pendiente" ? "en_impresion" : estadoAnterior,
-      pago: {
-        ...pedido.pago,
-        verificado: true,
-        estado: "anticipo",
-        montoCobrado: montoAnticipo,
-      },
-      envio: {
-        ...pedido.envio,
-        checklist: checklistAnterior.map((item, index) =>
-          index === 0 ? { ...item, hecho: true } : item
-        ),
-      },
-    });
-
-    try {
-      setCargandoConfirmacion(true);
-      setErrorAccion(null);
-
-      await verificarPagoPedidoService(pedido.id);
-      await recargar();
-
-      Alert.alert(
-        "Pago verificado",
-        "El anticipo fue verificado. El pedido pasó a producción."
-      );
-    } catch (e: any) {
-      actualizarPedidoLocal(pedido.id, {
-        estado: estadoAnterior,
-        pago: pagoAnterior,
-        envio: { ...pedido.envio, checklist: checklistAnterior },
-      });
-      const msg = e.message || "No se pudo verificar el pago.";
-      setErrorAccion(msg);
-      Alert.alert("Error", msg);
-    } finally {
-      setCargandoConfirmacion(false);
-    }
-  },
-  [actualizarPedidoLocal, recargar]
-);
-
-  const toggleChecklist = useCallback(
-    async (pedido: Pedido, itemId: string) => {
-      const checklistAnterior = pedido.envio.checklist;
-      const item = checklistAnterior.find((c) => c.id === itemId);
-      if (!item) return;
-
-      const nuevoChecklist = checklistAnterior.map((c) =>
-        c.id === itemId ? { ...c, hecho: !c.hecho } : c,
-      );
-      actualizarPedidoLocal(pedido.id, {
-        envio: { ...pedido.envio, checklist: nuevoChecklist },
-      });
-
-      try {
-        setErrorAccion(null);
-        await toggleChecklistItemService(itemId, item.hecho);
-      } catch (e: any) {
-        actualizarPedidoLocal(pedido.id, {
-          envio: { ...pedido.envio, checklist: checklistAnterior },
-        });
-        setErrorAccion("No se pudo actualizar el checklist.");
-      }
-    },
-    [actualizarPedidoLocal],
-  );
-
-  const abrirWhatsapp = useCallback((pedido: Pedido, mensaje: string) => {
-    const numero = pedido.cliente.telefono.replace(/[^\d+]/g, "");
-    Linking.openURL(
-      `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`,
-    );
-  }, []);
-
-  const llamarCliente = useCallback((pedido: Pedido) => {
-    Linking.openURL(`tel:${pedido.cliente.telefono}`);
-  }, []);
-
-  return {
-    errorAccion,
-    cargandoConfirmacion,
-    cambiarEstado,
-    marcarComoPagado,
-    confirmarVerificacionPago,
-    toggleChecklist,
-    abrirWhatsapp,
-    llamarCliente,
-    estadoConfig,
-  };
-}
-
-
-
-import { useEmpresaActual } from "@/context/EmpresaContext";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { estadoConfig, ESTADOS } from "../constants";
-import { mapPedidosFromDb } from "../mappers/pedidosMapper";
-import {
-  fetchPedidos,
-  suscribirCambiosPedidos,
-} from "../services/pedidosService";
-import { EstadoPedido, Pedido } from "../types";
-import { calcularPrioridad } from "../utils/fechas";
-
-export function usePedidos() {
-  const { empresaId } = useEmpresaActual();
-
-  const [pedidos, setPedidos] = useState<Pedido[]>([]);
-  const [cargando, setCargando] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [filtro, setFiltro] = useState<EstadoPedido | "todos">("todos");
-  const [busqueda, setBusqueda] = useState("");
-
-  const cargarPedidos = useCallback(async () => {
-    if (!empresaId) {
-      setCargando(false);
-      return;
-    }
-    try {
-      setError(null);
-      const rows = await fetchPedidos(empresaId);
-      setPedidos(mapPedidosFromDb(rows));
-    } catch (e: any) {
-      console.error("Error cargando pedidos en Supabase:", e);
-      setError(e.message ?? "No se pudieron cargar los pedidos");
-    } finally {
-      setCargando(false);
-    }
-  }, [empresaId]);
-
-  useEffect(() => {
-    cargarPedidos();
-    if (!empresaId) return;
-
-    const unsubscribe = suscribirCambiosPedidos(empresaId, cargarPedidos);
-    return unsubscribe;
-  }, [empresaId, cargarPedidos]);
-
-  const actualizarPedidoLocal = useCallback(
-    (id: string, cambios: Partial<Pedido>) => {
-      setPedidos((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, ...cambios } : p)),
-      );
-    },
-    [],
-  );
-
-  const conteos = useMemo(() => {
-    const base: Record<string, number> = { todos: pedidos.length };
-    ESTADOS.forEach(
-      (e) => (base[e.key] = pedidos.filter((p) => p.estado === e.key).length),
-    );
-    return base;
-  }, [pedidos]);
-
-  const kpis = useMemo(() => {
-    const activos = pedidos.filter((p) => p.estado !== "entregado");
-    const cobroPendiente = pedidos.reduce(
-      (acc, p) => acc + (p.pago.total - p.pago.montoCobrado),
-      0,
-    );
-    const entregasHoy = pedidos.filter(
-      (p) => calcularPrioridad(p.fechaEntregaISO, p.estado) === "urgente",
-    ).length;
-    const vencidos = pedidos.filter(
-      (p) => calcularPrioridad(p.fechaEntregaISO, p.estado) === "vencido",
-    ).length;
-    return { activos: activos.length, cobroPendiente, entregasHoy, vencidos };
-  }, [pedidos]);
-
-  const pedidosUrgentes = useMemo(
-    () =>
-      pedidos
-        .filter((p) => {
-          const pr = calcularPrioridad(p.fechaEntregaISO, p.estado);
-          return pr === "urgente" || pr === "vencido";
-        })
-        .sort(
-          (a, b) =>
-            new Date(a.fechaEntregaISO).getTime() -
-            new Date(b.fechaEntregaISO).getTime(),
-        ),
-    [pedidos],
-  );
-
-  const pedidosFiltrados = useMemo(() => {
-    let lista =
-      filtro === "todos" ? pedidos : pedidos.filter((p) => p.estado === filtro);
-    if (busqueda.trim()) {
-      const q = busqueda.trim().toLowerCase();
-      lista = lista.filter(
-        (p) =>
-          p.cliente.nombre.toLowerCase().includes(q) ||
-          p.pieza.toLowerCase().includes(q) ||
-          p.codigo.toLowerCase().includes(q),
-      );
-    }
-    return lista;
-  }, [pedidos, filtro, busqueda]);
-
-  return {
-    pedidos,
-    cargando,
-    error,
-    filtro,
-    setFiltro,
-    busqueda,
-    setBusqueda,
-    conteos,
-    kpis,
-    pedidosUrgentes,
-    pedidosFiltrados,
-    recargar: cargarPedidos,
-    actualizarPedidoLocal,
-    estadoConfig,
-  };
-}
-
-
-
-
-
-
-import { Pedido, PedidoRow } from "../types";
-import { formatCodigoPedido, formatFechaEntrega } from "../utils/formato";
-
-export function mapPedidoFromDb(row: PedidoRow): Pedido {
-  // 1. Obtener los pagos ordenados de más reciente a más antiguo
-  const pagos = row.pedido_pagos ?? [];
-  const pagosOrdenados = [...pagos].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
-
-  const ultimoPago = pagosOrdenados.length > 0 ? pagosOrdenados[0] : null;
-
-  // 2. Calcular la suma total cobrada a partir del historial de pagos
-  const totalPagadoCalculado = pagos.reduce(
-    (acc, pago) => acc + Number(pago.monto ?? 0),
-    0
-  );
-
-  // Si pago_monto_cobrado en BD viene en 0 o null, usaremos el total calculado de la relación
-  const montoCobradoFinal =
-    Number(row.pago_monto_cobrado) > 0
-      ? Number(row.pago_monto_cobrado)
-      : totalPagadoCalculado;
-
-  return {
-    id: row.id,
-    codigo: formatCodigoPedido(row.codigo_pedido),
-    cotizacionId: row.cotizacion_id,
-    cliente: {
-      id: row.clientes?.id ?? row.cliente_id,
-      nombre: row.clientes?.nombre ?? "Cliente sin nombre",
-      telefono: row.clientes?.telefono ?? "",
-      direccion: row.clientes?.direccion ?? "",
-      notas: row.clientes?.notas ?? "",
-      recurrente: row.cliente_recurrente ?? false,
-    },
-    pieza: row.pieza_descripcion,
-    estado: row.estado,
-    fechaEntregaTexto: formatFechaEntrega(row.fecha_entrega),
-    fechaEntregaISO: row.fecha_entrega ?? "",
-    pago: {
-      estado: row.pago_estado,
-      metodo: ultimoPago?.metodo ?? null,
-      anticipoPorcentaje: Number(row.pago_anticipo_pct ?? 0),
-      total: Number(row.pago_total ?? 0),
-      montoCobrado: montoCobradoFinal,
-      comprobanteUrl: ultimoPago?.comprobante_url ?? null,
-      verificado: ultimoPago?.verificado ?? false,
-    },
-    envio: {
-      tipo: row.envio_tipo,
-      costo: Number(row.envio_costo ?? 0),
-      tracking: row.envio_tracking ?? "",
-      checklist: (row.pedido_checklist_items ?? []).map((item) => ({
-        id: item.id,
-        label: item.label,
-        hecho: item.hecho,
-      })),
-    },
-    fotoFinalUrl: row.foto_final_url,
-    fotoCotizacionUrl: row.cotizaciones?.imagen_referencia_url ?? null,
-    historial: (row.pedido_eventos ?? []).map((e) => ({
-      id: e.id,
-      fecha: e.created_at,
-      texto: e.texto,
-    })),
-  };
-}
-
-export function mapPedidosFromDb(rows: PedidoRow[]): Pedido[] {
-  return rows.map(mapPedidoFromDb);
-}
-
-
-
-export type EstadoPedido = "pendiente" | "en_impresion" | "listo" | "entregado";
-export type EstadoPago = "sin_pagar" | "anticipo" | "pagado";
-export type MetodoPago = "transferencia" | "efectivo" | "qr";
-export type TipoEnvio = "recoger" | "domicilio";
-export type Prioridad = "normal" | "urgente" | "vencido";
-export type TipoPago = "anticipo" | "abono" | "pago_final";
-
-export interface ClienteRow {
-  id: string;
-  nombre: string;
-  telefono: string | null;
-  direccion: string | null;
-  notas: string | null;
-}
-
-export interface CotizacionRelacionRow {
-  id: string;
-  imagen_referencia_url: string | null;
-}
-
-export interface PedidoChecklistItemRow {
-  id: string;
-  pedido_id: string;
-  label: string;
-  hecho: boolean;
-  orden: number;
-}
-
-export interface PedidoEventoRow {
-  id: string;
-  pedido_id: string;
-  texto: string;
-  created_at: string;
-}
-
-export interface PedidoPagoRow {
-  id: string;
-  pedido_id: string;
-  monto: number;
-  metodo: MetodoPago;
-  tipo: TipoPago;
-  comprobante_url?: string | null;
-  verificado?: boolean;
-  created_at: string;
-}
-
-export interface PedidoRow {
-  id: string;
-  empresa_id: string;
-  creado_por: string;
-  cotizacion_id: string | null;
-  cliente_id: string;
-  producto_id: string | null;
-  codigo_pedido: number;
-
-  pieza_descripcion: string;
-  estado: EstadoPedido;
-  fecha_entrega: string | null;
-
-  pago_total: number;
-  pago_anticipo_pct: number;
-  pago_monto_cobrado: number;
-  pago_estado: EstadoPago;
-
-  envio_tipo: TipoEnvio;
-  envio_costo: number | null;
-  envio_tracking: string | null;
-
-  foto_final_url: string | null;
-  created_at: string;
-  updated_at: string;
-
-  clientes: ClienteRow | null;
-  cotizaciones: CotizacionRelacionRow | null;
-  pedido_checklist_items: PedidoChecklistItemRow[] | null;
-  pedido_eventos: PedidoEventoRow[] | null;
-  pedido_pagos: PedidoPagoRow[] | null;
-  cliente_recurrente?: boolean;
-}
-
-export interface EventoHistorial {
-  id: string;
-  fecha: string;
-  texto: string;
-}
-
-export interface ChecklistItem {
-  id: string;
-  label: string;
-  hecho: boolean;
-}
-
-export interface Pedido {
-  id: string;
-  codigo: string;
-  cotizacionId: string | null;
-  cliente: {
-    id: string;
-    nombre: string;
-    telefono: string;
-    direccion: string;
-    notas: string;
-    recurrente: boolean;
-  };
-  pieza: string;
-  estado: EstadoPedido;
-  fechaEntregaTexto: string;
-  fechaEntregaISO: string;
-  pago: {
-    estado: EstadoPago;
-    metodo: MetodoPago | null;
-    anticipoPorcentaje: number;
-    total: number;
-    montoCobrado: number;
-    comprobanteUrl: string | null;
-    verificado: boolean;
-  };
-  envio: {
-    tipo: TipoEnvio;
-    costo: number;
-    tracking: string;
-    checklist: ChecklistItem[];
-  };
-  fotoFinalUrl: string | null;
-  fotoCotizacionUrl: string | null;
-  historial: EventoHistorial[];
-}
-
-export interface RegistrarPagoInput {
-  pedidoId: string;
-  monto: number;
-  metodo: MetodoPago;
-  tipo: TipoPago;
-  comprobanteUrl?: string;
-}
-
-, [
+[
   {
     "tabla": "catalogo_productos",
     "columna": "id",
@@ -2102,6 +1592,30 @@ export interface RegistrarPagoInput {
     "referencia_columna_fk": "id"
   },
   {
+    "tabla": "pedidos",
+    "columna": "fecha_inicio_impresion",
+    "tipo_dato": "timestamp with time zone",
+    "es_pk": "NO",
+    "referencia_tabla_fk": "-",
+    "referencia_columna_fk": "-"
+  },
+  {
+    "tabla": "pedidos",
+    "columna": "fecha_estimada_listo",
+    "tipo_dato": "timestamp with time zone",
+    "es_pk": "NO",
+    "referencia_tabla_fk": "-",
+    "referencia_columna_fk": "-"
+  },
+  {
+    "tabla": "pedidos",
+    "columna": "horas_impresion_estimadas",
+    "tipo_dato": "numeric",
+    "es_pk": "NO",
+    "referencia_tabla_fk": "-",
+    "referencia_columna_fk": "-"
+  },
+  {
     "tabla": "profiles",
     "columna": "id",
     "tipo_dato": "uuid",
@@ -2201,4 +1715,123 @@ export interface RegistrarPagoInput {
 
 
 
-si tengo estos codigos y esos datos en mis tablas quiero que me des las logoca profesional y automaticamente para que un pedido ya esta en estado en_impresion quiero que tomes la duracion de impresion de mi cotizacion_items te todos mis cotizacion para que en base a esas horas pueda estimar mi tiempo de impresion para cambiar de estado automaticamente mi pedido de estado: "en_impresion" a "listo_para_entrega" con un margen de esperar de 15 minutos para que despues de esos 15 min empice la cuenta regresiva de mi pedido para que cuando termine el tiempo por decir el tiempo es ede 3 horas, 12 minutos automaticamente despues de ese tiempo quieor que me cambies mi estado de "en_impresion" a "listo_para_entrega"  y quiero ademas notificar que la impresion ya esta lista para entregar dame mis codigos completos con ese flujo profesional para actualizar, insertar, datos de mis pedidos como pedido_eventos, pedido_checklist_items y todo lo relacionado con mi cambio de estado de mi pedido  
+
+
+analisando detalladamente que tengo todos estos datos de mi negocio en mi app movil de react native + expo quiero que me des mis graficos profesionales para mi negocio de impresiones 3D con datos por el momento con datos estaticos para ver las profesionalidad de las graficos en mi apartado de mis finanzas manteniendo mi estructura porfesional que tengo:
+cotizador-3d/
+├── app/ # SOLO rutas (Expo Router) - Presentación/Navegación
+│ ├── (auth)/ # Grupo de rutas de autenticación
+│ │ ├── login.tsx
+│ │ └── \_layout.tsx
+│ ├── (tabs)/ # Tab Navigation principal
+│ │ ├── index.tsx # Dashboard / Home
+│ │ ├── cotizar.tsx # Cotización de impresiones 3D
+│ │ ├── comprobantes.tsx # Subida y gestión de comprobantes
+│ │ ├── materiales.tsx # Configuración de materiales e impresoras
+│ │ └── \_layout.tsx
+│ └── \_layout.tsx # Layout raíz (Providers globales, Auth Guard, Theme)
+│
+├── src/ # TODA la lógica de negocio, dominio y presentación
+│ ├── assets/ # Imágenes, fuentes, íconos locales
+│ ├── components/ # Componentes UI reutilizables de UI genérica
+│ │ ├── ui/ # Botones, inputs, cards, modales genéricos
+│ │ └── forms/ # Form Controls compartidos entre características
+│ │
+│ ├── config/ # Configuración global de la app
+│ │ ├── env.ts # Variables de entorno tipadas
+│ │ └── constants.ts
+│ │
+│ ├── constants/ # Constantes estáticas (colores, dimensiones, roles)
+│ │
+│ ├── context/ # Contextos globales de la aplicación
+│ │ ├── AppDataProvider.tsx # Provider principal que envuelve la app post-login
+│ │ ├── AuthContext.tsx # Manejo de sesión de usuario y Supabase Auth
+│ │ ├── ThemeContext.tsx # Manejo de modo claro/oscuro
+│ │ ├── ConfiguracionTallerContext.tsx # Contexto para parámetros globales de taller
+│ │ └── EmpresaContext.tsx # Contexto de la información/perfil de la empresa
+│ │
+│ ├── features/ # Lógica de negocio modularizada por dominio
+│ │ ├── auth/
+│ │ │ ├── hooks/
+│ │ │ ├── services/ # googleAuth.ts, session.ts
+│ │ │ └── types.ts
+│ │ │
+│ │ ├── cotizacion/
+│ │ │ ├── components/ # UI específica de cotizaciones (Calculadora, Resumen)
+│ │ │ ├── hooks/
+│ │ │ ├── services/
+│ │ │ ├── utils/ # Fórmulas matemáticas de cálculo de costos/tiempos
+│ │ │ └── types.ts
+│ │ │
+│ │ ├── materiales/ # Filamentos, impresoras, tarifas energéticas
+│ │ │ ├── components/
+│ │ │ ├── hooks/
+│ │ │ ├── services/
+│ │ │ └── types.ts
+│ │ │
+│ │ ├── comprobantes/
+│ │ │ ├── components/
+│ │ │ ├── hooks/
+│ │ │ ├── services/ # Gestor de buckets/Storage en Supabase
+│ │ │ └── types.ts
+│ │ │
+│ │ ├── empresa/ # Módulo de información y datos de la Empresa/Taller
+│ │ │ ├── components/
+│ │ │ ├── hooks/
+│ │ │ ├── mappers/ # Mapeo entre modelo Supabase DB y modelo UI
+│ │ │ │ └── empresaMapper.ts
+│ │ │ ├── services/ # Operaciones SELECT / UPSERT en Supabase
+│ │ │ │ └── empresaService.ts
+│ │ │ └── types.ts # EmpresaInfo (contrato de interfaz para UI)
+│ │ │
+│ │ ├── parametros/ # Parámetros operativos y costos indirectos de taller
+│ │ │ ├── components/
+│ │ │ ├── hooks/
+│ │ │ ├── mappers/
+│ │ │ ├── services/
+│ │ │ └── types.ts
+│ │ │
+│ │ ├── catalogo/ # Catálogo de productos/impresiones predefinidas
+│ │ │ ├── components/
+│ │ │ ├── hooks/
+│ │ │ ├── mappers/ # Mapeador de DB <-> UI para productos del catálogo
+│ │ │ ├── services/ # Consultas y mutaciones de catálogo
+│ │ │ └── types.ts
+│ │ │
+│ │ └── inventario/ # Gestión y control de stock de filamentos/insumos
+│ │ ├── components/
+│ │ ├── hooks/
+│ │ ├── mappers/ # Mapeador de DB <-> UI para stock e insumos
+│ │ ├── services/ # Gestión de stock y movimientos
+│ │ └── types.ts
+│ │
+│ ├── hooks/ # Hooks personalizados globales utilitarios (e.g. useAuth)
+│ │
+│ ├── services/ # Clientes base de servicios externos
+│ │ └── supabase/
+│ │ ├── client.ts # Inicialización y configuración del cliente Supabase
+│ │ ├── auth.ts # Métodos transversales de auth
+│ │ ├── storage.ts # Helper genérico de buckets/archivos
+│ │ └── database.ts # Cliente base o helpers genéricos de BD
+│ │
+│ ├── theme/ # Design tokens, paleta de colores, tipografía global
+│ ├── types/ # Tipos TypeScript compartidos o globales
+│ │ └── database.ts # Tipos crudos autogenerados de Supabase (Schema DB)
+│ │
+│ └── utils/ # Helpers globales (formato de moneda, fechas, sanitizadores)
+│
+├── scripts/ # Scripts de automatización / generación de tipos
+├── app.json
+├── eslint.config.js
+├── package.json
+├── tsconfig.json
+├── AGENTS.md
+├── CLAUDE.md
+└── README.md
+
+
+
+quiero que me des mis datos para estas diagramas:
+1. Métricas Clave (KPI Cards)Antes de las gráficas, utiliza tarjetas numéricas de alto impacto con un indicador de tendencia (Sparkline o variación porcentual vs. mes anterior).Ingreso Neto y Margen Operativo: Muestra la rentabilidad real descontando filamento, desgaste de impresora y electricidad.Costo por Hora de Impresión: Determina si el precio de venta cubre la amortización del equipo.Valor Promedio de Pedido (AOV): Muestra si los clientes compran piezas pequeñas o proyectos grandes.2. Ingresos vs. Egresos y Flujo de CajaGráfico Sugerido: Combinado (Barras de Ingresos/Egresos + Línea de Margen Neto) o Gráfico de Cascada (Waterfall Chart).Qué representa: Muestra cómo las ventas totales se reducen a medida que descuentas costos variables (filamento, energía) y costos fijos (mantenimiento de impresoras, licencias de software) hasta llegar a la ganancia real.3. Productos más Rentables y Clientes TopGráfico Sugerido: Gráfico de Pareto (Barras + Línea Acumulada del 80/20).Qué representa: Identifica qué 20% de tus productos o clientes representan el 80% de tus ingresos.Aplicación en Impresión 3D: Permite saber si es más rentable vender figuras impresas personalizadas o dar servicio de prototipado a empresas, identificando además los clientes recurrentes a los que se les debe dar prioridad de cola de impresión.4. Egresos por CategoríaGráfico Sugerido: Gráfico de Donut con Desglose Secundario o Treemap.Qué representa: La proporción exacta de los costos operativos.Categorías clave para Impresión 3D:Materia Prima: Filamentos (PLA, PETG, ABS, Resina) y refacciones (nozzles, camas, extrusores).Energía y Operación: Consumo eléctrico ($kWh$).Mantenimiento: Horas de taller y repuestos por desgaste de equipos.Fijos: Alquiler, servicios, amortización de impresoras.5. Ingresos por Métodos de PagoGráfico Sugerido: Gráfico de Barras Horizontales.Qué representa: Compara el volumen transaccionado por cada canal (Transferencia QR, efectivo, tarjeta de crédito, pasarelas de pago).Utilidad: Permite evaluar qué comisiones bancarias están impactando más el margen y ajustar estrategias de cobro.
+
+dame mis datos de mi tabla con datos estaticos y que todo el codidog de colores funciones y todo eso dentro de un solo archivo por componente de grafica 

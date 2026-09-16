@@ -1,0 +1,565 @@
+// app/(tabs)/inventario.tsx
+// Inventario profesional — DATOS ESTÁTICOS (mock) para maquetar la UI.
+// Reemplaza MOCK_* por tu hook real (useInventario) al conectar con Supabase.
+// Requiere: @expo/vector-icons (viene con Expo).
+
+import { Ionicons } from "@expo/vector-icons";
+import React, { useMemo, useState } from "react";
+import {
+  FlatList,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+// ────────────────────────────────────────────────────────────────────────────
+// THEME
+// ────────────────────────────────────────────────────────────────────────────
+
+const theme = {
+  bg: "#0B1120",
+  card: "#141B2E",
+  cardAlt: "#1B2438",
+  border: "#232D45",
+  text: "#F1F5F9",
+  textMuted: "#8A93A8",
+  primary: "#6366F1",
+  success: "#22C55E",
+  successBg: "#0F2A1B",
+  warning: "#F59E0B",
+  warningBg: "#2E210A",
+  danger: "#EF4444",
+  dangerBg: "#2E1414",
+  info: "#38BDF8",
+  infoBg: "#0A2536",
+};
+
+// ────────────────────────────────────────────────────────────────────────────
+// TIPOS
+// ────────────────────────────────────────────────────────────────────────────
+
+type TabInventario = "filamentos" | "piezas" | "impresoras";
+
+interface FilamentoUI {
+  id: string;
+  marca: string;
+  material: string;
+  color: string;
+  colorHex: string;
+  stockGramos: number;
+  capacidadRolloGramos: number;
+  costoCompra: number;
+  umbralBajoStock: number;
+  imagenUrl?: string;
+}
+
+interface PiezaStockUI {
+  id: string;
+  nombre: string;
+  cantidad: number;
+  asignada: boolean;
+  cliente?: string;
+  fechaImpresion: string;
+  precioVenta: number;
+}
+
+interface ImpresoraUI {
+  id: string;
+  modelo: string;
+  marca: string;
+  estado: "imprimiendo" | "libre" | "mantenimiento";
+  pedidoActual?: string;
+  horasUsoTotal: number;
+  vidaUtilHoras: number;
+  costoCompra: number;
+  potenciaWatts: number;
+  imagenUrl?: string;
+}
+
+interface PiezaTopUI {
+  id: string;
+  nombre: string;
+  vecesCotizada: number;
+  precioPromedio: number;
+  ultimaVez: string;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// DATOS ESTÁTICOS (MOCK)
+// ────────────────────────────────────────────────────────────────────────────
+
+const MOCK_FILAMENTOS: FilamentoUI[] = [
+  { id: "f1", marca: "eSun", material: "PLA", color: "Negro", colorHex: "#111111", stockGramos: 180, capacidadRolloGramos: 1000, costoCompra: 85, umbralBajoStock: 200 },
+  { id: "f2", marca: "Bambu Lab", material: "PETG", color: "Blanco", colorHex: "#F5F5F5", stockGramos: 410, capacidadRolloGramos: 1000, costoCompra: 110, umbralBajoStock: 200 },
+  { id: "f3", marca: "Creality", material: "PLA", color: "Rojo", colorHex: "#DC2626", stockGramos: 860, capacidadRolloGramos: 1000, costoCompra: 80, umbralBajoStock: 200 },
+  { id: "f4", marca: "eSun", material: "ABS", color: "Gris", colorHex: "#9CA3AF", stockGramos: 120, capacidadRolloGramos: 1000, costoCompra: 95, umbralBajoStock: 150 },
+  { id: "f5", marca: "Bambu Lab", material: "PLA Silk", color: "Dorado", colorHex: "#D4AF37", stockGramos: 640, capacidadRolloGramos: 1000, costoCompra: 130, umbralBajoStock: 150 },
+];
+
+const MOCK_PIEZAS: PiezaStockUI[] = [
+  { id: "s1", nombre: "Maceta geométrica 12cm", cantidad: 3, asignada: false, fechaImpresion: "hace 6 días", precioVenta: 38 },
+  { id: "s2", nombre: "Llavero personalizado", cantidad: 8, asignada: false, fechaImpresion: "hace 2 días", precioVenta: 15 },
+  { id: "s3", nombre: "Figura Goku 20cm", cantidad: 1, asignada: true, cliente: "María Fernández", fechaImpresion: "hoy", precioVenta: 120 },
+  { id: "s4", nombre: "Soporte celular articulado", cantidad: 2, asignada: true, cliente: "Jorge Quispe", fechaImpresion: "ayer", precioVenta: 45 },
+];
+
+const MOCK_IMPRESORAS: ImpresoraUI[] = [
+  { id: "i1", modelo: "Ender 3 V2", marca: "Creality", estado: "imprimiendo", pedidoActual: "Figura Goku 20cm", horasUsoTotal: 1120, vidaUtilHoras: 8000, costoCompra: 1400, potenciaWatts: 220 },
+  { id: "i2", modelo: "Bambu Lab P1S", marca: "Bambu Lab", estado: "imprimiendo", pedidoActual: "Set de llaveros x12", horasUsoTotal: 340, vidaUtilHoras: 6000, costoCompra: 5200, potenciaWatts: 350 },
+  { id: "i3", modelo: "Ender 3 Pro", marca: "Creality", estado: "libre", horasUsoTotal: 2890, vidaUtilHoras: 8000, costoCompra: 1200, potenciaWatts: 200 },
+  { id: "i4", modelo: "Prusa MK3S+", marca: "Prusa", estado: "mantenimiento", horasUsoTotal: 5400, vidaUtilHoras: 10000, costoCompra: 6800, potenciaWatts: 240 },
+];
+
+const MOCK_PIEZAS_TOP: PiezaTopUI[] = [
+  { id: "p1", nombre: "Soporte celular articulado", vecesCotizada: 23, precioPromedio: 45, ultimaVez: "hace 2 días" },
+  { id: "p2", nombre: "Maceta geométrica 12cm", vecesCotizada: 19, precioPromedio: 38, ultimaVez: "hace 5 días" },
+  { id: "p3", nombre: "Llavero personalizado", vecesCotizada: 17, precioPromedio: 15, ultimaVez: "ayer" },
+  { id: "p4", nombre: "Figura Goku 20cm", vecesCotizada: 14, precioPromedio: 120, ultimaVez: "hoy" },
+];
+
+// ────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ────────────────────────────────────────────────────────────────────────────
+
+const fmtMoneda = (n: number) => `Bs ${n.toLocaleString("es-BO")}`;
+const costoPorGramo = (f: FilamentoUI) => f.costoCompra / f.capacidadRolloGramos;
+const nivelStock = (f: FilamentoUI): "ok" | "bajo" | "critico" => {
+  if (f.stockGramos <= f.umbralBajoStock * 0.5) return "critico";
+  if (f.stockGramos <= f.umbralBajoStock) return "bajo";
+  return "ok";
+};
+
+const ESTADO_IMPRESORA_CFG = {
+  imprimiendo: { color: theme.success, bg: theme.successBg, label: "Imprimiendo", icon: "play-circle" as const },
+  libre: { color: theme.info, bg: theme.infoBg, label: "Libre", icon: "checkmark-circle" as const },
+  mantenimiento: { color: theme.warning, bg: theme.warningBg, label: "Mantenimiento", icon: "construct" as const },
+};
+
+const TABS: { key: TabInventario; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: "filamentos", label: "Filamentos", icon: "color-filter-outline" },
+  { key: "piezas", label: "Piezas en stock", icon: "layers-outline" },
+  { key: "impresoras", label: "Impresoras", icon: "print-outline" },
+];
+
+// ────────────────────────────────────────────────────────────────────────────
+// SUBCOMPONENTES
+// ────────────────────────────────────────────────────────────────────────────
+
+function KpiChip({ icon, label, value, color }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; color: string }) {
+  return (
+    <View style={styles.kpiChip}>
+      <View style={[styles.kpiIconWrap, { backgroundColor: color + "22" }]}>
+        <Ionicons name={icon} size={16} color={color} />
+      </View>
+      <View>
+        <Text style={styles.kpiValue}>{value}</Text>
+        <Text style={styles.kpiLabel}>{label}</Text>
+      </View>
+    </View>
+  );
+}
+
+function PiezaTopChip({ pieza }: { pieza: PiezaTopUI }) {
+  return (
+    <View style={styles.piezaTopChip}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.piezaTopNombre} numberOfLines={1}>{pieza.nombre}</Text>
+        <Text style={styles.piezaTopMeta}>{pieza.vecesCotizada}x · {fmtMoneda(pieza.precioPromedio)}</Text>
+      </View>
+      <Pressable style={styles.reCotizarBtn}>
+        <Ionicons name="refresh" size={13} color="#fff" />
+      </Pressable>
+    </View>
+  );
+}
+
+function ImagePlaceholder({ uri, icon, size = 90 }: { uri?: string; icon: keyof typeof Ionicons.glyphMap; size?: number }) {
+  return (
+    <View style={[styles.imgWrap, { height: size }]}>
+      {uri ? <Image source={{ uri }} style={styles.img} /> : <Ionicons name={icon} size={28} color={theme.textMuted} />}
+    </View>
+  );
+}
+
+function FilamentoCard({ f, onPress }: { f: FilamentoUI; onPress: () => void }) {
+  const nivel = nivelStock(f);
+  const pct = Math.min(f.stockGramos / f.capacidadRolloGramos, 1);
+  const nivelColor = nivel === "critico" ? theme.danger : nivel === "bajo" ? theme.warning : theme.success;
+
+  return (
+    <Pressable style={styles.gridCard} onPress={onPress}>
+      <ImagePlaceholder uri={f.imagenUrl} icon="color-filter-outline" />
+      <View style={styles.colorRow}>
+        <View style={[styles.colorDot, { backgroundColor: f.colorHex }]} />
+        <Text style={styles.gridTitle} numberOfLines={1}>{f.material} · {f.color}</Text>
+      </View>
+      <Text style={styles.gridSubtitle}>{f.marca}</Text>
+
+      <View style={styles.progressTrackSm}>
+        <View style={[styles.progressFillSm, { width: `${pct * 100}%`, backgroundColor: nivelColor }]} />
+      </View>
+      <Text style={[styles.gridMeta, nivel !== "ok" && { color: nivelColor, fontWeight: "700" }]}>
+        {f.stockGramos}g / {f.capacidadRolloGramos}g {nivel !== "ok" ? "· Stock bajo" : ""}
+      </Text>
+      <Text style={styles.gridPrecio}>{costoPorGramo(f).toFixed(3)} Bs/g</Text>
+    </Pressable>
+  );
+}
+
+function PiezaCard({ p }: { p: PiezaStockUI }) {
+  return (
+    <View style={styles.gridCard}>
+      <ImagePlaceholder icon="cube-outline" />
+      <Text style={styles.gridTitle} numberOfLines={2}>{p.nombre}</Text>
+      <Text style={styles.gridSubtitle}>Cantidad: {p.cantidad}</Text>
+      <View
+        style={[
+          styles.asignadaPill,
+          { backgroundColor: p.asignada ? theme.infoBg : theme.successBg },
+        ]}
+      >
+        <Text style={[styles.asignadaPillText, { color: p.asignada ? theme.info : theme.success }]}>
+          {p.asignada ? `Reservada · ${p.cliente}` : "Sin asignar"}
+        </Text>
+      </View>
+      <Text style={styles.gridMeta}>{p.fechaImpresion}</Text>
+      <Text style={styles.gridPrecio}>{fmtMoneda(p.precioVenta)}</Text>
+    </View>
+  );
+}
+
+function ImpresoraCard({ imp, onPress }: { imp: ImpresoraUI; onPress: () => void }) {
+  const cfg = ESTADO_IMPRESORA_CFG[imp.estado];
+  const desgaste = Math.min(imp.horasUsoTotal / imp.vidaUtilHoras, 1);
+
+  return (
+    <Pressable style={styles.gridCard} onPress={onPress}>
+      <ImagePlaceholder uri={imp.imagenUrl} icon="print-outline" />
+      <Text style={styles.gridTitle} numberOfLines={1}>{imp.modelo}</Text>
+      <Text style={styles.gridSubtitle}>{imp.marca}</Text>
+
+      <View style={[styles.estadoPill, { backgroundColor: cfg.bg, alignSelf: "flex-start" }]}>
+        <Ionicons name={cfg.icon} size={11} color={cfg.color} />
+        <Text style={[styles.estadoPillText, { color: cfg.color }]}>{cfg.label}</Text>
+      </View>
+
+      {imp.pedidoActual && (
+        <Text style={styles.gridMeta} numberOfLines={1}>{imp.pedidoActual}</Text>
+      )}
+
+      <View style={styles.progressTrackSm}>
+        <View
+          style={[
+            styles.progressFillSm,
+            { width: `${desgaste * 100}%`, backgroundColor: desgaste > 0.85 ? theme.danger : theme.primary },
+          ]}
+        />
+      </View>
+      <Text style={styles.gridMeta}>{imp.horasUsoTotal.toLocaleString()}h / {imp.vidaUtilHoras.toLocaleString()}h</Text>
+    </Pressable>
+  );
+}
+
+function DetalleModal({
+  visible,
+  onClose,
+  title,
+  imagenUrl,
+  icon,
+  rows,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  title: string;
+  imagenUrl?: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  rows: { label: string; value: string; color?: string }[];
+}) {
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+            <View style={styles.modalHandle} />
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.modalTitle}>{title}</Text>
+              <Pressable onPress={onClose} hitSlop={10}>
+                <Ionicons name="close" size={22} color={theme.textMuted} />
+              </Pressable>
+            </View>
+            <ImagePlaceholder uri={imagenUrl} icon={icon} size={140} />
+            <View style={{ marginTop: 12, gap: 10 }}>
+              {rows.map((r) => (
+                <View key={r.label} style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>{r.label}</Text>
+                  <Text style={[styles.detailValue, r.color && { color: r.color }]}>{r.value}</Text>
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SCREEN
+// ────────────────────────────────────────────────────────────────────────────
+
+export default function InventarioScreen() {
+  const [tab, setTab] = useState<TabInventario>("filamentos");
+  const [busqueda, setBusqueda] = useState("");
+  const [filamentoActivo, setFilamentoActivo] = useState<FilamentoUI | null>(null);
+  const [impresoraActiva, setImpresoraActiva] = useState<ImpresoraUI | null>(null);
+
+  const kpis = useMemo(() => {
+    const valorFilamentos = MOCK_FILAMENTOS.reduce((acc, f) => acc + costoPorGramo(f) * f.stockGramos, 0);
+    const valorImpresoras = MOCK_IMPRESORAS.reduce((acc, i) => acc + i.costoCompra, 0);
+    const bajoStock = MOCK_FILAMENTOS.filter((f) => nivelStock(f) !== "ok").length;
+    const piezasSinAsignar = MOCK_PIEZAS.filter((p) => !p.asignada).reduce((acc, p) => acc + p.cantidad, 0);
+    return { valorTotal: valorFilamentos + valorImpresoras, bajoStock, piezasSinAsignar };
+  }, []);
+
+  const filamentosFiltrados = useMemo(
+    () => MOCK_FILAMENTOS.filter((f) => `${f.marca} ${f.material} ${f.color}`.toLowerCase().includes(busqueda.toLowerCase())),
+    [busqueda]
+  );
+  const piezasFiltradas = useMemo(
+    () => MOCK_PIEZAS.filter((p) => p.nombre.toLowerCase().includes(busqueda.toLowerCase())),
+    [busqueda]
+  );
+  const impresorasFiltradas = useMemo(
+    () => MOCK_IMPRESORAS.filter((i) => `${i.marca} ${i.modelo}`.toLowerCase().includes(busqueda.toLowerCase())),
+    [busqueda]
+  );
+
+  const dataActual = tab === "filamentos" ? filamentosFiltrados : tab === "piezas" ? piezasFiltradas : impresorasFiltradas;
+
+  return (
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <FlatList
+        key={tab}
+        data={dataActual as any[]}
+        numColumns={2}
+        keyExtractor={(item) => item.id}
+        columnWrapperStyle={styles.columnWrapper}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        renderItem={({ item }) => {
+          if (tab === "filamentos") return <FilamentoCard f={item as FilamentoUI} onPress={() => setFilamentoActivo(item as FilamentoUI)} />;
+          if (tab === "piezas") return <PiezaCard p={item as PiezaStockUI} />;
+          return <ImpresoraCard imp={item as ImpresoraUI} onPress={() => setImpresoraActiva(item as ImpresoraUI)} />;
+        }}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Ionicons name="file-tray-outline" size={30} color={theme.textMuted} />
+            <Text style={styles.emptyTitle}>Sin resultados para esta búsqueda</Text>
+          </View>
+        }
+        ListHeaderComponent={
+          <View style={{ gap: 18, marginBottom: 6 }}>
+            <Text style={styles.screenTitle}>Inventario</Text>
+
+            {/* KPIs */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 16 }}>
+              <KpiChip icon="wallet-outline" label="Valor total" value={fmtMoneda(Math.round(kpis.valorTotal))} color={theme.primary} />
+              <KpiChip icon="alert-circle-outline" label="Bajo stock" value={`${kpis.bajoStock}`} color={theme.danger} />
+              <KpiChip icon="layers-outline" label="Piezas sin asignar" value={`${kpis.piezasSinAsignar}`} color={theme.info} />
+            </ScrollView>
+
+            {/* Piezas más cotizadas */}
+            <View>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>Piezas más cotizadas</Text>
+                <Text style={styles.sectionAction}>Ver todas</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 16 }}>
+                {MOCK_PIEZAS_TOP.map((p) => (
+                  <PiezaTopChip key={p.id} pieza={p} />
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* Tabs */}
+            <View style={styles.tabsRow}>
+              {TABS.map((t) => {
+                const activo = tab === t.key;
+                return (
+                  <Pressable
+                    key={t.key}
+                    onPress={() => {
+                      setTab(t.key);
+                      setBusqueda("");
+                    }}
+                    style={[styles.tabBtn, activo && styles.tabBtnActivo]}
+                  >
+                    <Ionicons name={t.icon} size={15} color={activo ? "#fff" : theme.textMuted} />
+                    <Text style={[styles.tabBtnText, activo && { color: "#fff" }]}>{t.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Buscador + agregar */}
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <View style={[styles.searchBox, { flex: 1 }]}>
+                <Ionicons name="search" size={16} color={theme.textMuted} />
+                <TextInput
+                  value={busqueda}
+                  onChangeText={setBusqueda}
+                  placeholder={`Buscar en ${TABS.find((t) => t.key === tab)?.label.toLowerCase()}`}
+                  placeholderTextColor={theme.textMuted}
+                  style={styles.searchInput}
+                />
+              </View>
+              {tab !== "piezas" && (
+                <Pressable style={styles.addBtn}>
+                  <Ionicons name="add" size={20} color="#fff" />
+                </Pressable>
+              )}
+            </View>
+          </View>
+        }
+      />
+
+      <DetalleModal
+        visible={!!filamentoActivo}
+        onClose={() => setFilamentoActivo(null)}
+        title={filamentoActivo ? `${filamentoActivo.material} · ${filamentoActivo.color}` : ""}
+        icon="color-filter-outline"
+        imagenUrl={filamentoActivo?.imagenUrl}
+        rows={
+          filamentoActivo
+            ? [
+                { label: "Marca", value: filamentoActivo.marca },
+                { label: "Stock actual", value: `${filamentoActivo.stockGramos}g de ${filamentoActivo.capacidadRolloGramos}g` },
+                { label: "Costo por gramo", value: `${costoPorGramo(filamentoActivo).toFixed(3)} Bs/g` },
+                { label: "Costo del rollo", value: fmtMoneda(filamentoActivo.costoCompra) },
+                {
+                  label: "Estado de stock",
+                  value: nivelStock(filamentoActivo) === "ok" ? "Normal" : nivelStock(filamentoActivo) === "bajo" ? "Bajo" : "Crítico",
+                  color: nivelStock(filamentoActivo) === "ok" ? theme.success : nivelStock(filamentoActivo) === "bajo" ? theme.warning : theme.danger,
+                },
+              ]
+            : []
+        }
+      />
+
+      <DetalleModal
+        visible={!!impresoraActiva}
+        onClose={() => setImpresoraActiva(null)}
+        title={impresoraActiva?.modelo ?? ""}
+        icon="print-outline"
+        imagenUrl={impresoraActiva?.imagenUrl}
+        rows={
+          impresoraActiva
+            ? [
+                { label: "Marca", value: impresoraActiva.marca },
+                { label: "Estado", value: ESTADO_IMPRESORA_CFG[impresoraActiva.estado].label, color: ESTADO_IMPRESORA_CFG[impresoraActiva.estado].color },
+                { label: "Pedido actual", value: impresoraActiva.pedidoActual ?? "Ninguno" },
+                { label: "Horas de uso", value: `${impresoraActiva.horasUsoTotal.toLocaleString()}h / ${impresoraActiva.vidaUtilHoras.toLocaleString()}h` },
+                { label: "Consumo", value: `${impresoraActiva.potenciaWatts}W` },
+                { label: "Costo de compra", value: fmtMoneda(impresoraActiva.costoCompra) },
+              ]
+            : []
+        }
+      />
+    </SafeAreaView>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// STYLES
+// ────────────────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: theme.bg },
+  listContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 32 },
+  columnWrapper: { justifyContent: "space-between", gap: 12 },
+
+  screenTitle: { color: theme.text, fontSize: 22, fontWeight: "800" },
+
+  sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  sectionTitle: { color: theme.text, fontSize: 15, fontWeight: "700" },
+  sectionAction: { color: theme.primary, fontSize: 12.5, fontWeight: "600" },
+
+  kpiChip: {
+    flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.card,
+    borderRadius: 14, padding: 10, borderWidth: 1, borderColor: theme.border, minWidth: 150,
+  },
+  kpiIconWrap: { width: 30, height: 30, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  kpiValue: { color: theme.text, fontSize: 14, fontWeight: "800" },
+  kpiLabel: { color: theme.textMuted, fontSize: 10.5 },
+
+  piezaTopChip: {
+    flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: theme.card,
+    borderRadius: 14, padding: 10, borderWidth: 1, borderColor: theme.border, width: 190,
+  },
+  piezaTopNombre: { color: theme.text, fontSize: 12.5, fontWeight: "700" },
+  piezaTopMeta: { color: theme.textMuted, fontSize: 10.5, marginTop: 1 },
+  reCotizarBtn: { width: 28, height: 28, borderRadius: 9, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" },
+
+  tabsRow: { flexDirection: "row", gap: 8, backgroundColor: theme.card, borderRadius: 14, padding: 4, borderWidth: 1, borderColor: theme.border },
+  tabBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 9, borderRadius: 10 },
+  tabBtnActivo: { backgroundColor: theme.primary },
+  tabBtnText: { color: theme.textMuted, fontSize: 11.5, fontWeight: "700" },
+
+  searchBox: {
+    flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.card,
+    borderRadius: 14, paddingHorizontal: 12, height: 44, borderWidth: 1, borderColor: theme.border,
+  },
+  searchInput: { flex: 1, color: theme.text, fontSize: 13 },
+  addBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" },
+
+  gridCard: {
+    flex: 1, backgroundColor: theme.card, borderRadius: 16, padding: 12,
+    borderWidth: 1, borderColor: theme.border, gap: 4, marginBottom: 12,
+  },
+  imgWrap: {
+    borderRadius: 12, backgroundColor: theme.cardAlt, alignItems: "center", justifyContent: "center", marginBottom: 6, overflow: "hidden",
+  },
+  img: { width: "100%", height: "100%" },
+
+  colorRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  colorDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 1, borderColor: theme.border },
+
+  gridTitle: { color: theme.text, fontSize: 12.5, fontWeight: "700" },
+  gridSubtitle: { color: theme.textMuted, fontSize: 11 },
+  gridMeta: { color: theme.textMuted, fontSize: 10.5, marginTop: 2 },
+  gridPrecio: { color: theme.success, fontSize: 12, fontWeight: "700", marginTop: 2 },
+
+  progressTrackSm: { height: 5, borderRadius: 4, backgroundColor: theme.cardAlt, overflow: "hidden", marginTop: 6 },
+  progressFillSm: { height: "100%", borderRadius: 4 },
+
+  estadoPill: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, marginTop: 2 },
+  estadoPillText: { fontSize: 10, fontWeight: "700" },
+
+  asignadaPill: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, alignSelf: "flex-start", marginTop: 2 },
+  asignadaPillText: { fontSize: 10, fontWeight: "700" },
+
+  emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 60, gap: 8 },
+  emptyTitle: { color: theme.textMuted, fontSize: 13 },
+
+  // Modal
+  modalBackdrop: { flex: 1, backgroundColor: "#00000099", justifyContent: "flex-end" },
+  modalSheet: {
+    backgroundColor: theme.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 18, paddingTop: 10, maxHeight: "85%",
+  },
+  modalHandle: { width: 40, height: 4, borderRadius: 3, backgroundColor: theme.border, alignSelf: "center", marginBottom: 14 },
+  modalTitle: { color: theme.text, fontSize: 18, fontWeight: "800" },
+
+  detailRow: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    borderBottomWidth: 1, borderBottomColor: theme.border, paddingBottom: 10,
+  },
+  detailLabel: { color: theme.textMuted, fontSize: 12.5 },
+  detailValue: { color: theme.text, fontSize: 13, fontWeight: "700" },
+});

@@ -1,3 +1,4 @@
+// src/features/cotizacion/hooks/useCotizacion.ts
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { useClientes } from "@/features/clientes/hooks/useClientes";
 import { useMaterialesTaller } from "@/features/materiales/hooks/useMaterialesTaller";
@@ -30,18 +31,18 @@ const initialForm: CotizarFormState = {
 
 // Campos que SÍ influyen en el cálculo técnico de la cotización.
 // Solo estos deben invalidar el `resultado` actual al cambiar.
-// El resto (imagen_referencia, datos de cliente, notas, etc.) son
-// metadatos que no deben resetear el cálculo ya realizado.
-const CAMPOS_QUE_AFECTAN_CALCULO: ReadonlySet<keyof CotizarFormState> = new Set([
-  "filamento_id",
-  "impresora_id",
-  "regla_margen_id",
-  "margen_ganancia_pct",
-  "porcentaje_riesgo",
-  "precio_personalizacion",
-  "tiempo_preparacion_minutos",
-  "tiempo_postprocesado_minutos",
-]);
+const CAMPOS_QUE_AFECTAN_CALCULO: ReadonlySet<keyof CotizarFormState> = new Set(
+  [
+    "filamento_id",
+    "impresora_id",
+    "regla_margen_id",
+    "margen_ganancia_pct",
+    "porcentaje_riesgo",
+    "precio_personalizacion",
+    "tiempo_preparacion_minutos",
+    "tiempo_postprocesado_minutos",
+  ],
+);
 
 const crearPiezaVacia = (numero: number): PiezaFormState => ({
   id: `pieza_${Date.now()}_${numero}`,
@@ -50,6 +51,7 @@ const crearPiezaVacia = (numero: number): PiezaFormState => ({
   cantidad: "1",
   tiempo_impresion_horas: "",
   tiempo_impresion_minutos: "0",
+  foto_pieza: "",
 });
 
 export function useCotizacion() {
@@ -87,13 +89,41 @@ export function useCotizacion() {
     if (errorTaller) setError(errorTaller);
   }, [errorTaller]);
 
+  /**
+   * ⚠️ ELIMINADO A PROPÓSITO:
+   * El efecto que auto-asignaba impresoras[0] y filamentos[0] al form.
+   * Provocaba que la cotización se calculara con un filamento que el usuario
+   * nunca eligió (y sin verificar stock), rompiendo la validación secuencial.
+   * La selección ahora es 100% explícita del usuario.
+   */
+
+  /**
+   * Si el filamento o la impresora seleccionados desaparecen del catálogo
+   * (se borraron, se quedaron sin stock, cambió la empresa), limpiamos la
+   * selección para que la validación secuencial vuelva a bloquear el paso.
+   */
   useEffect(() => {
-    setForm((prev) => ({
-      ...prev,
-      impresora_id: prev.impresora_id || (impresoras[0]?.id ?? ""),
-      filamento_id: prev.filamento_id || (filamentos[0]?.id ?? ""),
-    }));
+    setForm((prev) => {
+      const filamentoSigueExistiendo =
+        !prev.filamento_id ||
+        filamentos.some((f) => f.id === prev.filamento_id);
+      const impresoraSigueExistiendo =
+        !prev.impresora_id ||
+        impresoras.some((i) => i.id === prev.impresora_id);
+
+      if (filamentoSigueExistiendo && impresoraSigueExistiendo) return prev;
+
+      return {
+        ...prev,
+        filamento_id: filamentoSigueExistiendo ? prev.filamento_id : "",
+        impresora_id: impresoraSigueExistiendo ? prev.impresora_id : "",
+      };
+    });
   }, [impresoras, filamentos]);
+
+  const limpiarResultado = useCallback(() => {
+    setResultado(null);
+  }, []);
 
   const updateField = useCallback(
     (field: keyof CotizarFormState, value: string) => {
@@ -173,16 +203,25 @@ export function useCotizacion() {
       if (horas <= 0 && minutos <= 0) {
         return `${etiqueta}: ingresa un tiempo de impresión válido`;
       }
+      if (!p.foto_pieza) {
+        return `${etiqueta}: toma una foto de la pieza antes de calcular`;
+      }
     }
     return null;
   }, [form.filamento_id, form.impresora_id, piezas]);
 
   const calcular = useCallback(() => {
-    if (!config) return;
+    if (!config) {
+      setError(
+        "No se cargó la configuración de la empresa. Revisa Parámetros del Taller.",
+      );
+      return;
+    }
 
     const errorValidacion = validar();
     if (errorValidacion) {
       setError(errorValidacion);
+      setResultado(null);
       return;
     }
 
@@ -220,7 +259,9 @@ export function useCotizacion() {
             tiempo_impresion_horas: Number(p.tiempo_impresion_horas) || 0,
             tiempo_impresion_minutos: Number(p.tiempo_impresion_minutos) || 0,
           })),
-          tiempo_preparacion_minutos: Number(form.tiempo_preparacion_minutos || 0),
+          tiempo_preparacion_minutos: Number(
+            form.tiempo_preparacion_minutos || 0,
+          ),
           tiempo_postprocesado_minutos: Number(
             form.tiempo_postprocesado_minutos || 0,
           ),
@@ -246,6 +287,7 @@ export function useCotizacion() {
       const msg =
         e instanceof Error ? e.message : "Error al calcular la cotización";
       setError(msg);
+      setResultado(null);
     } finally {
       setCalculando(false);
     }
@@ -297,22 +339,24 @@ export function useCotizacion() {
           notas: form.notas || null,
           impresoraId: form.impresora_id,
           filamentoId: form.filamento_id,
-          tiempoPreparacionMinutos: Number(form.tiempo_preparacion_minutos || 0),
+          tiempoPreparacionMinutos: Number(
+            form.tiempo_preparacion_minutos || 0,
+          ),
           tiempoPostprocesadoMinutos: Number(
             form.tiempo_postprocesado_minutos || 0,
           ),
           costoDisenoTotal: resultado.precio_personalizacion ?? 0,
           resultado,
-          // 🔑 FIX: sin esto, imagen_referencia_url nunca se guardaba.
-          // form.imagen_referencia es la URI local que dejó ImagePicker;
-          // el service se encarga de subirla al bucket "empresa-assets"
-          // y de persistir la URL pública resultante.
-          imagenUri: form.imagen_referencia || null,
+          piezasFotos: piezas.map((p) => ({
+            id: p.id,
+            fotoUri: p.foto_pieza || null,
+          })),
         });
 
+        const nuevaPiezaInicial = crearPiezaVacia(1);
         setForm(initialForm);
-        setPiezas([crearPiezaVacia(1)]);
-        setPiezaActivaId((p) => p);
+        setPiezas([nuevaPiezaInicial]);
+        setPiezaActivaId(nuevaPiezaInicial.id);
         setResultado(null);
         await Promise.all([recargarTaller(), recargarClientes()]);
         return respuestaBD;
@@ -331,6 +375,7 @@ export function useCotizacion() {
       empresaId,
       resultado,
       form,
+      piezas,
       resolverClienteId,
       recargarTaller,
       recargarClientes,
@@ -357,6 +402,7 @@ export function useCotizacion() {
     guardando,
     error,
     calcular,
+    limpiarResultado,
     guardar,
     recargarTaller,
     recargarClientes,

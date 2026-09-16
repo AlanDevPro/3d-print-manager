@@ -1,64 +1,88 @@
 // src/features/cotizacion/components/forms/sections/ImpresoraSelector.tsx
-import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+
 import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
+import { SeccionBloqueadaCard } from "@/components/ui/SeccionBloqueadaCard";
+import { SeccionErroresInline } from "@/components/ui/SeccionErroresInline";
 import { SelectableChip } from "@/components/ui/SelectableChip";
-import { useTheme } from "@/hooks/useTheme";
+import type { ErrorCampo } from "@/features/cotizacion/utils/validarSecuenciaCotizacion";
 import type { Impresora } from "@/features/materiales/types";
+import { useTheme } from "@/hooks/useTheme";
 
 interface ImpresoraSelectorProps {
   impresoras: Impresora[];
   impresoraId?: string;
   onSeleccionar: (id: string) => void;
+  bloqueado: boolean;
+  bloqueadoPor?: string;
+  erroresBloqueantes: ErrorCampo[];
+  errores: ErrorCampo[];
+  completo: boolean;
 }
 
 export function ImpresoraSelector({
   impresoras,
   impresoraId,
   onSeleccionar,
+  bloqueado,
+  bloqueadoPor,
+  erroresBloqueantes,
+  errores,
+  completo,
 }: ImpresoraSelectorProps) {
   const { theme } = useTheme();
 
-  // Agrupar las impresoras por su marca (ej. "Ender", "Bambu Lab", "Creality", "Prusa")
   const impresorasAgrupadas = useMemo(() => {
     if (!impresoras || impresoras.length === 0) return {};
 
     return impresoras.reduce<Record<string, Impresora[]>>((acc, imp) => {
       const marca = (imp.marca || "Genérica").trim().toUpperCase();
-
-      if (!acc[marca]) {
-        acc[marca] = [];
-      }
+      if (!acc[marca]) acc[marca] = [];
       acc[marca].push(imp);
       return acc;
     }, {});
   }, [impresoras]);
 
-  const marcas = Object.keys(impresorasAgrupadas);
+  const marcas = useMemo(
+    () => Object.keys(impresorasAgrupadas),
+    [impresorasAgrupadas],
+  );
 
-  // Estado para la marca actualmente seleccionada
-  const [marcaActiva, setMarcaActiva] = useState<string | null>(() => {
-    return marcas.length > 0 ? marcas[0] : null;
-  });
+  const [marcaActiva, setMarcaActiva] = useState<string | null>(null);
 
-  // Si cambia la impresoraId externamente, sincronizar la marca activa
+  useEffect(() => {
+    if (
+      marcas.length > 0 &&
+      (!marcaActiva || !impresorasAgrupadas[marcaActiva])
+    ) {
+      setMarcaActiva(marcas[0]);
+    } else if (marcas.length === 0 && marcaActiva !== null) {
+      setMarcaActiva(null);
+    }
+  }, [marcas, marcaActiva, impresorasAgrupadas]);
+
   useEffect(() => {
     if (!impresoraId || impresoras.length === 0) return;
-
     const seleccionada = impresoras.find((imp) => imp.id === impresoraId);
     if (seleccionada) {
-      const marca = (seleccionada.marca || "Genérica").trim().toUpperCase();
-      setMarcaActiva(marca);
+      setMarcaActiva((seleccionada.marca || "Genérica").trim().toUpperCase());
     }
   }, [impresoraId, impresoras]);
 
-  // Asegurar que exista una marca activa válida si cambian los datos
-  useEffect(() => {
-    if (marcas.length > 0 && (!marcaActiva || !impresorasAgrupadas[marcaActiva])) {
-      setMarcaActiva(marcas[0]);
-    }
-  }, [marcas, marcaActiva, impresorasAgrupadas]);
+  /* ---------- Bloqueado por el paso anterior ---------- */
+  if (bloqueado) {
+    return (
+      <SeccionBloqueadaCard
+        numeroPaso={3}
+        tituloSeccion="Impresora"
+        bloqueadoPor={bloqueadoPor}
+        errores={erroresBloqueantes}
+        icono="hardware-chip-outline"
+      />
+    );
+  }
 
   if (impresoras.length === 0) {
     return (
@@ -67,10 +91,10 @@ export function ImpresoraSelector({
           <Ionicons
             name="hardware-chip-outline"
             size={16}
-            color={theme.textSecondary}
+            color={theme.danger}
           />
-          <Text style={[styles.label, { color: theme.textSecondary }]}>
-            Impresora
+          <Text style={[styles.label, { color: theme.danger }]}>
+            3. Impresora
           </Text>
         </View>
         <EmptyStateCard
@@ -90,13 +114,36 @@ export function ImpresoraSelector({
 
   return (
     <View style={styles.container}>
-      {/* Paso 1: Selección de Marca */}
       <View style={styles.labelGroup}>
-        <Ionicons name="hardware-chip-outline" size={16} color={theme.primary} />
+        <View
+          style={[
+            styles.stepBubble,
+            {
+              backgroundColor: completo
+                ? "rgba(22, 163, 74, 0.15)"
+                : `${theme.primary}1F`,
+            },
+          ]}
+        >
+          {completo ? (
+            <Ionicons name="checkmark" size={13} color="#16A34A" />
+          ) : (
+            <Text style={[styles.stepNumber, { color: theme.primary }]}>3</Text>
+          )}
+        </View>
+        <Ionicons
+          name="hardware-chip-outline"
+          size={16}
+          color={theme.primary}
+        />
         <Text style={[styles.label, { color: theme.textPrimary }]}>
-          1. Selecciona la Marca de Impresora
+          Impresora
         </Text>
       </View>
+
+      <Text style={[styles.stepCaption, { color: theme.textSecondary }]}>
+        3.1 Marca
+      </Text>
 
       <View style={styles.categoriesRow}>
         {marcas.map((marca) => {
@@ -152,15 +199,11 @@ export function ImpresoraSelector({
         })}
       </View>
 
-      {/* Paso 2: Selección de Modelo */}
       {marcaActiva && (
         <View
           style={[
             styles.modelsCard,
-            {
-              backgroundColor: theme.bgSurface,
-              borderColor: theme.border,
-            },
+            { backgroundColor: theme.bgSurface, borderColor: theme.border },
           ]}
         >
           <View style={styles.modelsHeader}>
@@ -170,45 +213,47 @@ export function ImpresoraSelector({
               color={theme.primary}
             />
             <Text style={[styles.modelsTitle, { color: theme.textPrimary }]}>
-              2. Modelo de {marcaActiva}
+              3.2 Modelo de {marcaActiva}
             </Text>
           </View>
 
           <View style={styles.chipsRow}>
-            {modelosDisponibles.map((imp) => {
-              const displayLabel = imp.modelo ?? "Modelo estándar";
-
-              return (
-                <SelectableChip
-                  key={imp.id}
-                  label={displayLabel}
-                  selected={impresoraId === imp.id}
-                  onPress={() => onSeleccionar(imp.id)}
-                  showIcon
-                />
-              );
-            })}
+            {modelosDisponibles.map((imp) => (
+              <SelectableChip
+                key={imp.id}
+                label={imp.modelo ?? "Modelo estándar"}
+                selected={impresoraId === imp.id}
+                onPress={() => onSeleccionar(imp.id)}
+                showIcon
+              />
+            ))}
           </View>
         </View>
       )}
+
+      <SeccionErroresInline errores={errores} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    marginVertical: 8,
-  },
+  container: { marginVertical: 8 },
   labelGroup: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 7,
     marginBottom: 8,
   },
-  label: {
-    fontSize: 14,
-    fontWeight: "700",
+  stepBubble: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  stepNumber: { fontSize: 11, fontWeight: "800" },
+  label: { fontSize: 14, fontWeight: "700" },
+  stepCaption: { fontSize: 12, fontWeight: "600", marginBottom: 8 },
   categoriesRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -224,37 +269,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  categoryTabText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  badgeCount: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 10,
-  },
-  badgeCountText: {
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  modelsCard: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 12,
-  },
+  categoryTabText: { fontSize: 13, fontWeight: "700" },
+  badgeCount: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 10 },
+  badgeCountText: { fontSize: 10, fontWeight: "700" },
+  modelsCard: { borderWidth: 1, borderRadius: 10, padding: 12 },
   modelsHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     marginBottom: 10,
   },
-  modelsTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  chipsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
+  modelsTitle: { fontSize: 13, fontWeight: "600" },
+  chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
 });

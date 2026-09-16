@@ -1,40 +1,50 @@
-//src/features/finanzas/hooks/useFilamentosBajoStock.ts
+// src/features/finanzas/hooks/useFilamentosBajoStock.ts
 import { useEmpresaActual } from "@/context/EmpresaContext";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { mapFilamentoDesdeDB } from "../mappers/finanzasMapper";
-import { obtenerFilamentosBajoStock } from "../services/finanzasService";
+import { obtenerFilamentos } from "../services/finanzasService";
 import { FilamentoStockUI } from "../types";
 import { puedeVerFinanzas } from "../utils/finanzasAcceso";
 
-export function useFilamentosBajoStock(umbral = 0.2) {
+/**
+ * @param umbralRelativo fracción del rollo usada cuando el filamento no tiene
+ * `umbral_bajo_stock` configurado en la base.
+ */
+export function useFilamentosBajoStock(umbralRelativo = 0.2) {
   const { empresaId, rol } = useEmpresaActual();
   const [filamentos, setFilamentos] = useState<FilamentoStockUI[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const cargar = useCallback(async () => {
     if (!empresaId || !puedeVerFinanzas(rol)) {
       setLoading(false);
       return;
     }
-    (async () => {
-      setLoading(true);
-      try {
-        const rows = await obtenerFilamentosBajoStock(empresaId);
-        setFilamentos(rows.map(mapFilamentoDesdeDB));
-      } catch (error) {
-        console.error("Error al cargar filamentos bajo stock:", error);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    setLoading(true);
+    try {
+      const rows = await obtenerFilamentos(empresaId);
+      setFilamentos(rows.map(mapFilamentoDesdeDB));
+    } catch (error) {
+      console.error("Error al cargar filamentos:", error);
+      setFilamentos([]);
+    } finally {
+      setLoading(false);
+    }
   }, [empresaId, rol]);
 
-  const bajoStock = filamentos.filter((f) => {
-    if (f.umbralBajoStock !== undefined && f.umbralBajoStock > 0) {
-      return f.gramosRestantes <= f.umbralBajoStock;
-    }
-    return f.gramosRestantes / f.gramosPorRollo <= umbral;
-  });
+  useEffect(() => {
+    cargar();
+  }, [cargar]);
 
-  return { filamentos, filamentosBajoStock: bajoStock, loading };
+  const filamentosBajoStock = useMemo(
+    () =>
+      filamentos.filter((f) =>
+        f.umbralBajoStock > 0
+          ? f.gramosRestantes <= f.umbralBajoStock
+          : f.gramosRestantes / (f.gramosPorRollo || 1) <= umbralRelativo,
+      ),
+    [filamentos, umbralRelativo],
+  );
+
+  return { filamentos, filamentosBajoStock, loading, refetch: cargar };
 }

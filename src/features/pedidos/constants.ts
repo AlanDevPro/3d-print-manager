@@ -76,9 +76,8 @@ export const ENVIO_CONFIG: Record<
   TipoEnvio,
   { label: string; icono: keyof typeof Ionicons.glyphMap }
 > = {
-  recogida: { label: "Recogida local", icono: "storefront-outline" },
+  recoger: { label: "Recogida local", icono: "storefront-outline" },
   domicilio: { label: "Envío a domicilio", icono: "bicycle-outline" },
-  transporte: { label: "Empresa de transporte", icono: "bus-outline" },
 };
 
 export const PRIORIDAD_CONFIG: Record<

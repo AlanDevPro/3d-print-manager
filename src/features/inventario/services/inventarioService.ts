@@ -1,5 +1,8 @@
+// src/features/inventario/services/inventarioService.ts
 import { supabase } from "@/services/supabase/client";
+import { decode } from "base64-arraybuffer";
 import * as Crypto from "expo-crypto";
+import { File as ExpoFile } from "expo-file-system"; // <--- Alias para evitar colisión de tipos
 import {
   mapFilamentoRow,
   mapFilamentoToInsertRow,
@@ -23,23 +26,20 @@ export type ContextoUsuario = {
 
 const BUCKET_NAME = "empresa-assets";
 
-/**
- * Genera un UUID compatible tanto para Web como para React Native / Expo
- */
 function generarUUID(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   return Crypto.randomUUID();
 }
 
-/**
- * Auxiliar para subir un archivo 'File' (Entorno Web)
- */
 async function subirImagenStorageWeb(
-  file: File,
+  file: globalThis.File, // <--- Usamos explícitamente el File global del navegador/web
   empresaId: string,
-  carpeta: "filamentos" | "impresoras"
+  carpeta: "filamentos" | "impresoras",
 ): Promise<string> {
   const fileExt = file.name.split(".").pop();
   const fileName = `${generarUUID()}.${fileExt}`;
@@ -63,32 +63,34 @@ async function subirImagenStorageWeb(
   return publicUrlData.publicUrl;
 }
 
-/**
- * Auxiliar para subir una imagen desde una URI local (Entorno React Native / Expo)
- */
 async function subirImagenStorageNative(
   uri: string,
   empresaId: string,
-  carpeta: "filamentos" | "impresoras"
+  carpeta: "filamentos" | "impresoras",
 ): Promise<string> {
-  const fileExt = uri.split(".").pop()?.split("?")[0] || "jpg";
+  const cleanUri = uri.split("?")[0];
+  const fileExt = cleanUri.split(".").pop()?.toLowerCase() || "jpg";
   const fileName = `${generarUUID()}.${fileExt}`;
   const filePath = `${empresaId}/${carpeta}/${fileName}`;
+  const mimeType = fileExt === "png" ? "image/png" : "image/jpeg";
 
-  // Se convierte la URI local a ArrayBuffer para compatibilidad móvil con Supabase
-  const response = await fetch(uri);
-  const arrayBuffer = await response.arrayBuffer();
+  // Usamos el alias ExpoFile para manipular archivos locales en React Native
+  const file = new ExpoFile(uri);
+  const base64Data = await file.base64();
+  const arrayBuffer = decode(base64Data);
 
   const { error: uploadError } = await supabase.storage
     .from(BUCKET_NAME)
     .upload(filePath, arrayBuffer, {
-      contentType: `image/${fileExt === "png" ? "png" : "jpeg"}`,
+      contentType: mimeType,
       cacheControl: "3600",
       upsert: false,
     });
 
   if (uploadError) {
-    throw new Error(`Error al subir la imagen en React Native: ${uploadError.message}`);
+    throw new Error(
+      `Error al subir la imagen en React Native: ${uploadError.message}`,
+    );
   }
 
   const { data: publicUrlData } = supabase.storage
@@ -98,18 +100,14 @@ async function subirImagenStorageNative(
   return publicUrlData.publicUrl;
 }
 
-/**
- * Procesa la fuente de la imagen (URI local, File de Web o URL existente)
- */
 async function procesarImagen(
-  origenImagen: File | string | undefined | null,
+  origenImagen: globalThis.File | string | undefined | null, // <--- Tipado seguro con globalThis.File
   empresaId: string,
-  carpeta: "filamentos" | "impresoras"
+  carpeta: "filamentos" | "impresoras",
 ): Promise<string | null> {
   if (!origenImagen) return null;
 
   if (typeof origenImagen === "string") {
-    // Si la URI pertenece al almacenamiento local del dispositivo (Expo)
     if (
       origenImagen.startsWith("file://") ||
       origenImagen.startsWith("ph://") ||
@@ -117,11 +115,13 @@ async function procesarImagen(
     ) {
       return await subirImagenStorageNative(origenImagen, empresaId, carpeta);
     }
-    // Si ya es una URL remota de Supabase o HTTP
     return origenImagen;
   }
 
-  if (typeof File !== "undefined" && origenImagen instanceof File) {
+  if (
+    typeof globalThis.File !== "undefined" &&
+    origenImagen instanceof globalThis.File
+  ) {
     return await subirImagenStorageWeb(origenImagen, empresaId, carpeta);
   }
 
@@ -153,7 +153,7 @@ export async function obtenerContextoUsuario(): Promise<ContextoUsuario> {
 }
 
 export async function obtenerFilamentos(
-  empresaId: string
+  empresaId: string,
 ): Promise<Filamento[]> {
   const { data, error } = await supabase
     .from("filamentos")
@@ -167,11 +167,15 @@ export async function obtenerFilamentos(
 }
 
 export async function crearFilamento(
-  nuevo: NuevoFilamento & { imagenUrl?: string; imagenFile?: File | string },
-  empresaId: string
+  nuevo: NuevoFilamento,
+  empresaId: string,
 ): Promise<Filamento> {
   const origenImagen = nuevo.imagenUrl || nuevo.imagenFile;
-  const imagenUrlFinal = await procesarImagen(origenImagen, empresaId, "filamentos");
+  const imagenUrlFinal = await procesarImagen(
+    origenImagen as any, // Cast seguro para tolerar la polivalencia de tipos UI
+    empresaId,
+    "filamentos",
+  );
 
   const { data, error } = await supabase
     .from("filamentos")
@@ -184,7 +188,7 @@ export async function crearFilamento(
 }
 
 export async function obtenerImpresoras(
-  empresaId: string
+  empresaId: string,
 ): Promise<Impresora[]> {
   const { data, error } = await supabase
     .from("impresoras")
@@ -198,11 +202,15 @@ export async function obtenerImpresoras(
 }
 
 export async function crearImpresora(
-  nueva: NuevaImpresora & { imagenUrl?: string; imagenFile?: File | string },
-  empresaId: string
+  nueva: NuevaImpresora,
+  empresaId: string,
 ): Promise<Impresora> {
   const origenImagen = nueva.imagenUrl || nueva.imagenFile;
-  const imagenUrlFinal = await procesarImagen(origenImagen, empresaId, "impresoras");
+  const imagenUrlFinal = await procesarImagen(
+    origenImagen as any, // Cast seguro para tolerar la polivalencia de tipos UI
+    empresaId,
+    "impresoras",
+  );
 
   const { data, error } = await supabase
     .from("impresoras")
@@ -215,7 +223,7 @@ export async function crearImpresora(
 }
 
 export async function obtenerPiezasStock(
-  userId: string
+  userId: string,
 ): Promise<PiezaStock[]> {
   const { data, error } = await supabase
     .from("piezas_stock")

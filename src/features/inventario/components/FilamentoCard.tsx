@@ -1,7 +1,6 @@
-// src/features/inventario/components/FilamentoCard.tsx
 import { COLOR_ALERTA, COLOR_DANGER, COLOR_OK } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
+import React, { useState } from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import type { Filamento } from "../types";
 
@@ -9,32 +8,15 @@ type Props = {
   theme: any;
   filamento: Filamento;
   onPress: () => void;
-  onAgregar?: () => void; // Callback para la acción del botón agregar
+  onAgregar?: () => void;
 };
 
-// Colección de imágenes estáticas de filamentos 3D para fallback/pruebas
-const STATIC_SPOOL_IMAGES = [
-  "https://images.unsplash.com/photo-1615840241336-79b20b72740b?q=80&w=600&auto=format&fit=crop", // Bobina azul/negra
-  "https://images.unsplash.com/photo-1581092160607-ee22621dd758?q=80&w=600&auto=format&fit=crop", // Rollo técnico
-  "https://images.unsplash.com/photo-1581092335397-9583fe92d232?q=80&w=600&auto=format&fit=crop", // Impresión y filamento
-  "https://images.unsplash.com/photo-1612815154858-60aa4c59eaa6?q=80&w=600&auto=format&fit=crop", // Bobina de filamento
-];
-
-/**
- * Retorna una imagen estática determinista basada en la propiedad del filamento
- */
-function getStaticImage(filamento: Filamento): string {
-  if (filamento.imagenUrl) return filamento.imagenUrl;
-
-  const key = filamento.id || filamento.color || "default";
-  const index = Math.abs(
-    key.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0)
-  ) % STATIC_SPOOL_IMAGES.length;
-
-  return STATIC_SPOOL_IMAGES[index];
-}
+const DEFAULT_SPOOL_IMAGE =
+  "https://images.unsplash.com/photo-1615840241336-79b20b72740b?q=80&w=600&auto=format&fit=crop";
 
 export function FilamentoCard({ theme, filamento, onPress, onAgregar }: Props) {
+  const [imageError, setImageError] = useState(false);
+
   const porcentaje = Math.min(
     100,
     Math.round((filamento.stockGramos / filamento.capacidadRolloGramos) * 100)
@@ -46,7 +28,10 @@ export function FilamentoCard({ theme, filamento, onPress, onAgregar }: Props) {
     ? COLOR_ALERTA
     : COLOR_OK;
 
-  const imageUri = getStaticImage(filamento);
+  const imageUri =
+    !imageError && filamento.imagenUrl
+      ? filamento.imagenUrl
+      : DEFAULT_SPOOL_IMAGE;
 
   return (
     <TouchableOpacity
@@ -64,12 +49,13 @@ export function FilamentoCard({ theme, filamento, onPress, onAgregar }: Props) {
       activeOpacity={0.88}
       onPress={onPress}
     >
-      {/* --- ÁREA PRINCIPAL: IMAGEN A BORDES COMPLETOS --- */}
+      {/* Área Principal: Imagen de Filamento */}
       <View style={styles.imageContainer}>
         <Image
           source={{ uri: imageUri }}
           style={styles.spoolImage}
           resizeMode="cover"
+          onError={() => setImageError(true)}
         />
 
         {/* Badge Superior Izquierdo: Material */}
@@ -95,7 +81,7 @@ export function FilamentoCard({ theme, filamento, onPress, onAgregar }: Props) {
             ]}
             activeOpacity={0.7}
             onPress={(e) => {
-              e.stopPropagation(); // Evita disparar el onPress de la Card
+              e.stopPropagation();
               onAgregar();
             }}
           >
@@ -111,7 +97,7 @@ export function FilamentoCard({ theme, filamento, onPress, onAgregar }: Props) {
         )}
       </View>
 
-      {/* --- BARRA DE PROGRESO DE STOCK --- */}
+      {/* Barra de Progreso de Stock */}
       <View
         style={[
           styles.barraFondo,
@@ -126,9 +112,8 @@ export function FilamentoCard({ theme, filamento, onPress, onAgregar }: Props) {
         />
       </View>
 
-      {/* --- FOOTER INFERIOR ESTILO CATÁLOGO --- */}
+      {/* Footer Estilo Catálogo */}
       <View style={styles.footerContainer}>
-        {/* Izquierda: Swatch de Color + Nombre del Color */}
         <View style={styles.colorInfoGroup}>
           <View
             style={[
@@ -137,14 +122,16 @@ export function FilamentoCard({ theme, filamento, onPress, onAgregar }: Props) {
             ]}
           />
           <Text
-            style={[styles.nombreColorTexto, { color: theme.textPrimary || "#FFFFFF" }]}
+            style={[
+              styles.nombreColorTexto,
+              { color: theme.textPrimary || "#FFFFFF" },
+            ]}
             numberOfLines={1}
           >
             {filamento.color}
           </Text>
         </View>
 
-        {/* Derecha: Stock Actual / Cantidad Inicial */}
         <Text style={[styles.stockRatioTexto, { color: colorEstado }]}>
           {filamento.stockGramos}g / {filamento.capacidadRolloGramos}g
         </Text>

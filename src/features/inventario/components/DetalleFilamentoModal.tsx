@@ -1,7 +1,7 @@
-// src/features/inventario/components/DetalleFilamentoModal.tsx
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
+import { useState } from "react";
 import {
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -20,7 +20,19 @@ type Props = {
   onClose: () => void;
 };
 
+const DEFAULT_SPOOL_IMAGE =
+  "https://images.unsplash.com/photo-1615840241336-79b20b72740b?q=80&w=600&auto=format&fit=crop";
+
 export function DetalleFilamentoModal({ filamento, theme, onClose }: Props) {
+  const [imageError, setImageError] = useState(false);
+
+  if (!filamento) return null;
+
+  const imageUri =
+    !imageError && filamento.imagenUrl
+      ? filamento.imagenUrl
+      : DEFAULT_SPOOL_IMAGE;
+
   return (
     <Modal
       visible={!!filamento}
@@ -37,145 +49,166 @@ export function DetalleFilamentoModal({ filamento, theme, onClose }: Props) {
           ]}
           onPress={(e) => e.stopPropagation()}
         >
-          {filamento && (
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={sharedStyles.modalHandle} />
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <View style={sharedStyles.modalHandle} />
 
-              {/* Cabecera visual: el color del filamento ocupa todo el ancho del recuadro,
-                  igual que la foto del rollo en el catálogo */}
-              <View style={[styles.hero, { backgroundColor: filamento.colorHex + "22" }]}>
-                <View style={[styles.heroSpoolOuter, { backgroundColor: filamento.colorHex }]}>
-                  <View style={[styles.heroSpoolMid, { backgroundColor: theme.bgPrimary }]}>
-                    <View
-                      style={[styles.heroSpoolCore, { backgroundColor: filamento.colorHex }]}
-                    />
-                  </View>
+            {/* Cabecera Hero: Visualización de la Imagen Real del Filamento */}
+            <View style={styles.heroContainer}>
+              <Image
+                source={{ uri: imageUri }}
+                style={styles.heroImage}
+                resizeMode="cover"
+                onError={() => setImageError(true)}
+              />
+
+              {/* Degradado superpuesto para mejorar legibilidad */}
+              <View style={styles.heroOverlay} />
+
+              {/* Badge de Alerta en Hero si el stock es bajo */}
+              {filamento.stockGramos <= filamento.umbralBajoStock && (
+                <View style={styles.heroAlertaBadge}>
+                  <Ionicons name="warning" size={12} color="#FFFFFF" />
+                  <Text style={styles.heroAlertaBadgeTexto}>Bajo stock</Text>
                 </View>
+              )}
+            </View>
 
-                {filamento.stockGramos <= filamento.umbralBajoStock && (
-                  <View style={styles.heroAlertaBadge}>
-                    <Ionicons name="warning" size={12} color="#fff" />
-                    <Text style={styles.heroAlertaBadgeTexto}>Bajo stock</Text>
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.contenido}>
-                <View style={sharedStyles.modalHeaderRow}>
-                  <View
-                    style={[
-                      styles.colorSwatchLg,
-                      { backgroundColor: filamento.colorHex },
-                    ]}
-                  >
-                    <View style={styles.swatchInnerRing} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={[
-                        sharedStyles.modalTitulo,
-                        { color: theme.textPrimary },
-                      ]}
-                    >
-                      {filamento.tipo} {filamento.color}
-                    </Text>
-                    <View style={styles.subtituloRow}>
-                      <Ionicons
-                        name="business-outline"
-                        size={12}
-                        color={theme.textSecondary}
-                      />
-                      <Text
-                        style={[
-                          sharedStyles.modalSub,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        {filamento.marca} · {filamento.proveedor ?? "Sin proveedor"}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Sección: DETALLES TÉCNICOS, en dos columnas como el catálogo */}
-                <Text style={[styles.seccionTitulo, { color: theme.textPrimary }]}>
-                  DETALLES TÉCNICOS
-                </Text>
-
-                <View style={sharedStyles.modalGrid}>
-                  <DetalleItem
-                    theme={theme}
-                    label="Stock restante"
-                    valor={`${filamento.stockGramos} g`}
-                    icono="cube-outline"
-                    destacado
-                  />
-                  <DetalleItem
-                    theme={theme}
-                    label="Capacidad del rollo"
-                    valor={`${filamento.capacidadRolloGramos} g`}
-                    icono="disc-outline"
-                  />
-                  <DetalleItem
-                    theme={theme}
-                    label="Costo por rollo"
-                    valor={`Bs ${filamento.costoCompra.toFixed(2)}`}
-                    icono="cash-outline"
-                  />
-                  <DetalleItem
-                    theme={theme}
-                    label="Fecha de compra"
-                    valor={filamento.fechaCompra}
-                    icono="calendar-outline"
-                  />
-                </View>
-
-                {/* Sección: COLOR, con el hex como en el recuadro del catálogo */}
-                <Text style={[styles.seccionTitulo, { color: theme.textPrimary }]}>
-                  COLOR
-                </Text>
+            <View style={styles.contenido}>
+              {/* Título y Subtítulo */}
+              <View style={sharedStyles.modalHeaderRow}>
                 <View
                   style={[
-                    styles.colorInfoBox,
-                    { backgroundColor: theme.bgSecondary },
+                    styles.colorSwatchLg,
+                    { backgroundColor: filamento.colorHex },
                   ]}
                 >
-                  <View
-                    style={[styles.colorInfoSwatch, { backgroundColor: filamento.colorHex }]}
-                  />
-                  <View>
-                    <Text style={[styles.colorInfoLabel, { color: theme.textSecondary }]}>
-                      {filamento.color}
-                    </Text>
-                    <Text style={[styles.colorInfoHex, { color: theme.textPrimary }]}>
-                      Hex {filamento.colorHex.toUpperCase()}
+                  <View style={styles.swatchInnerRing} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      sharedStyles.modalTitulo,
+                      { color: theme.textPrimary },
+                    ]}
+                  >
+                    {filamento.tipo} {filamento.color}
+                  </Text>
+                  <View style={styles.subtituloRow}>
+                    <Ionicons
+                      name="business-outline"
+                      size={12}
+                      color={theme.textSecondary}
+                    />
+                    <Text
+                      style={[
+                        sharedStyles.modalSub,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      {filamento.marca} ·{" "}
+                      {filamento.proveedor ?? "Sin proveedor"}
                     </Text>
                   </View>
                 </View>
+              </View>
 
-                {filamento.stockGramos <= filamento.umbralBajoStock && (
-                  <View style={styles.avisoBajoStock}>
-                    <Ionicons name="warning-outline" size={18} color="#EF4444" />
-                    <Text style={styles.avisoBajoStockTexto}>
-                      Stock por debajo del umbral ({filamento.umbralBajoStock} g).
-                      Considera reponer este rollo.
-                    </Text>
-                  </View>
-                )}
+              {/* Detalles Técnicos */}
+              <Text
+                style={[styles.seccionTitulo, { color: theme.textPrimary }]}
+              >
+                DETALLES TÉCNICOS
+              </Text>
 
-                <TouchableOpacity style={sharedStyles.cerrarBtn} onPress={onClose}>
+              <View style={sharedStyles.modalGrid}>
+                <DetalleItem
+                  theme={theme}
+                  label="Stock restante"
+                  valor={`${filamento.stockGramos} g`}
+                  icono="cube-outline"
+                  destacado
+                />
+                <DetalleItem
+                  theme={theme}
+                  label="Capacidad del rollo"
+                  valor={`${filamento.capacidadRolloGramos} g`}
+                  icono="disc-outline"
+                />
+                <DetalleItem
+                  theme={theme}
+                  label="Costo por rollo"
+                  valor={`Bs ${filamento.costoCompra.toFixed(2)}`}
+                  icono="cash-outline"
+                />
+                <DetalleItem
+                  theme={theme}
+                  label="Fecha de compra"
+                  valor={filamento.fechaCompra}
+                  icono="calendar-outline"
+                />
+              </View>
+
+              {/* Sección Color */}
+              <Text
+                style={[styles.seccionTitulo, { color: theme.textPrimary }]}
+              >
+                COLOR
+              </Text>
+              <View
+                style={[
+                  styles.colorInfoBox,
+                  { backgroundColor: theme.bgSecondary },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.colorInfoSwatch,
+                    { backgroundColor: filamento.colorHex },
+                  ]}
+                />
+                <View>
                   <Text
                     style={[
-                      sharedStyles.cerrarBtnTexto,
+                      styles.colorInfoLabel,
                       { color: theme.textSecondary },
                     ]}
                   >
-                    Cerrar
+                    {filamento.color}
                   </Text>
-                </TouchableOpacity>
+                  <Text
+                    style={[styles.colorInfoHex, { color: theme.textPrimary }]}
+                  >
+                    Hex {filamento.colorHex.toUpperCase()}
+                  </Text>
+                </View>
               </View>
-            </ScrollView>
-          )}
+
+              {/* Alerta de Reabastecimiento */}
+              {filamento.stockGramos <= filamento.umbralBajoStock && (
+                <View style={styles.avisoBajoStock}>
+                  <Ionicons name="warning-outline" size={18} color="#EF4444" />
+                  <Text style={styles.avisoBajoStockTexto}>
+                    Stock por debajo del umbral ({filamento.umbralBajoStock} g).
+                    Considera reponer este rollo.
+                  </Text>
+                </View>
+              )}
+
+              {/* Botón Cerrar */}
+              <TouchableOpacity
+                style={sharedStyles.cerrarBtn}
+                onPress={onClose}
+              >
+                <Text
+                  style={[
+                    sharedStyles.cerrarBtnTexto,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  Cerrar
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>
@@ -183,51 +216,29 @@ export function DetalleFilamentoModal({ filamento, theme, onClose }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // Quita el padding general del sheet para que el hero pueda ocupar todo el ancho
   modalSheetSinPadding: {
     paddingHorizontal: 0,
     paddingTop: 0,
+    overflow: "hidden",
   },
-  hero: {
+  heroContainer: {
     width: "100%",
-    height: 190,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 4,
+    height: 220,
+    position: "relative",
+    backgroundColor: "#0D0D14",
   },
-  heroSpoolOuter: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#00000020",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+  heroImage: {
+    width: "100%",
+    height: "100%",
   },
-  heroSpoolMid: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#00000018",
-  },
-  heroSpoolCore: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    opacity: 0.55,
+  heroOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(0,0,0,0.25)",
   },
   heroAlertaBadge: {
     position: "absolute",
-    top: 14,
-    right: 14,
+    top: 16,
+    right: 16,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
@@ -235,9 +246,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingHorizontal: 10,
     paddingVertical: 5,
+    elevation: 3,
   },
   heroAlertaBadgeTexto: {
-    color: "#fff",
+    color: "#FFFFFF",
     fontSize: 11,
     fontWeight: "800",
   },

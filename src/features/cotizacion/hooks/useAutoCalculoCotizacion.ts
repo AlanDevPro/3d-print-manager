@@ -1,83 +1,77 @@
 // src/features/cotizacion/hooks/useAutoCalculoCotizacion.ts
-import { useEffect, useState } from "react";
-import { validarCotizacionForm } from "@/features/cotizacion/utils/validarCotizacionForm";
+import { useEffect, useRef } from "react";
+
 import type { UseCotizacionReturn } from "@/features/cotizacion/hooks/useCotizacion";
-import type { ReglaMargen } from "@/features/cotizacion/types/formTypes";
 
 interface UseAutoCalculoCotizacionParams {
+  /** Solo se calcula cuando la validación secuencial está 100% completa */
+  habilitado: boolean;
   form: UseCotizacionReturn["form"];
   piezas: UseCotizacionReturn["piezas"];
-  updateField: UseCotizacionReturn["updateField"];
   calcular: UseCotizacionReturn["calcular"];
-  reglasMargen: ReglaMargen[];
-  esPersonalizado: boolean;
+  /** ms de espera tras el último cambio antes de recalcular */
+  debounceMs?: number;
 }
 
+/**
+ * Motor de cálculo en tiempo real.
+ *
+ * Reglas:
+ *  - NUNCA calcula si `habilitado` es false (evita cotizar sin filamento/impresora).
+ *  - Calcula una sola vez por combinación de datos (firma), incluso si `calcular`
+ *    falla, para no entrar en un bucle de reintentos cada 350 ms.
+ *  - La firma incluye TODOS los campos que en useCotizacion invalidan el
+ *    resultado (setResultado(null)), incluida la foto de cada pieza.
+ */
 export function useAutoCalculoCotizacion({
+  habilitado,
   form,
   piezas,
-  updateField,
   calcular,
-  reglasMargen,
-  esPersonalizado,
+  debounceMs = 350,
 }: UseAutoCalculoCotizacionParams) {
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const firma = JSON.stringify({
+    filamento_id: form.filamento_id,
+    impresora_id: form.impresora_id,
+    regla_margen_id: form.regla_margen_id,
+    margen_ganancia_pct: form.margen_ganancia_pct,
+    porcentaje_riesgo: form.porcentaje_riesgo,
+    precio_personalizacion: form.precio_personalizacion,
+    precio_mayorista: form.precio_mayorista,
+    precio_minorista: form.precio_minorista,
+    tiempo_preparacion_minutos: form.tiempo_preparacion_minutos,
+    tiempo_postprocesado_minutos: form.tiempo_postprocesado_minutos,
+    piezas: piezas.map((p) => ({
+      id: p.id,
+      nombre_pieza: p.nombre_pieza,
+      peso_gramos: p.peso_gramos,
+      cantidad: p.cantidad,
+      tiempo_impresion_horas: p.tiempo_impresion_horas,
+      tiempo_impresion_minutos: p.tiempo_impresion_minutos,
+      foto_pieza: p.foto_pieza,
+    })),
+  });
 
-  // 1. Aplica la regla de margen predeterminada si el usuario aún no eligió una
+  const firmaIntentada = useRef<string | null>(null);
+  const calcularRef = useRef(calcular);
+
   useEffect(() => {
-    if (
-      (!form.regla_margen_id || !form.margen_ganancia_pct) &&
-      reglasMargen.length > 0
-    ) {
-      const reglaDefault =
-        reglasMargen.find((r) => r.es_predeterminado) || reglasMargen[0];
-      if (reglaDefault) {
-        updateField(
-          "margen_ganancia_pct",
-          String(reglaDefault.margen_ganancia_pct)
-        );
-        updateField("regla_margen_id", reglaDefault.id);
-      }
+    calcularRef.current = calcular;
+  }, [calcular]);
+
+  useEffect(() => {
+    if (!habilitado) {
+      firmaIntentada.current = null;
+      return;
     }
-  }, [reglasMargen, form.regla_margen_id, form.margen_ganancia_pct, updateField]);
 
-  // 2. Auto-cálculo con debounce enfocado ÚNICAMENTE en parámetros de cotización técnica
-  useEffect(() => {
+    if (firmaIntentada.current === firma) return;
+
     const timer = setTimeout(() => {
-      // Validamos los parámetros requeridos antes de lanzar la cotización
-      const errorEncontrado = validarCotizacionForm(
-        form,
-        piezas,
-        esPersonalizado
-      );
-      setValidationError(errorEncontrado);
-
-      // Ejecutar el cálculo ignorando si existe o no imagen_referencia
-      if (!errorEncontrado) {
-        calcular();
-      }
-    }, 350);
+      firmaIntentada.current = firma;
+      calcularRef.current();
+    }, debounceMs);
 
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    // Dependencias estrictas del cálculo técnico y matemático
-    form.filamento_id,
-    form.impresora_id,
-    form.porcentaje_riesgo,
-    form.precio_personalizacion,
-    form.margen_ganancia_pct,
-    form.regla_margen_id,
-    form.tiempo_preparacion_minutos,
-    form.tiempo_postprocesado_minutos,
-    esPersonalizado,
-    // Serialización limpia de piezas para evitar re-renderizados infinitos por referencia
-    JSON.stringify(piezas),
-    // NOTA: Se excluyen intencionalmente metadatos que no afectan el cálculo técnico:
-    // - form.imagen_referencia (evita resetear el cálculo al tomar/subir fotos)
-    // - form.nombre_cliente
-    // - form.telefono_cliente
-  ]);
-
-  return { validationError };
+  }, [habilitado, firma, debounceMs]);
 }

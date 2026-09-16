@@ -1,20 +1,19 @@
 // features/auth/hooks/useAccount.ts
 import { useAuth } from "@/context/AuthContext";
+import { useUpdatePerfil } from "@/features/auth/hooks/usePerfilHibrido";
 import * as authService from "@/features/auth/services/authService";
 import { uploadAvatar } from "@/features/auth/services/perfilService";
-import { useUpdatePerfil } from "@/features/auth/hooks/usePerfilHibrido";
 import type { RolUsuario } from "@/features/auth/types";
+import { useQueryClient } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
 import { useState } from "react";
 import { Alert } from "react-native";
-import { useQueryClient } from "@tanstack/react-query";
 
 export const useAccount = () => {
   const { user, profile } = useAuth();
   const updatePerfilMutation = useUpdatePerfil();
   const queryClient = useQueryClient();
 
-  // Reemplazamos estados locales por el perfil que viene del contexto/query directamente
   const [nombreInput, setNombre] = useState<string | null>(null);
   const [telefonoInput, setTelefono] = useState<string | null>(null);
   const [newAvatarUri, setNewAvatarUri] = useState<string | null>(null);
@@ -25,17 +24,23 @@ export const useAccount = () => {
   const [passNueva, setPassNueva] = useState("");
   const [isSigningOut, setIsSigningOut] = useState(false);
 
-  // Valores leídos en vivo directamente de la BD/Contexto
-  const nombre = modoEdicion ? (nombreInput ?? profile?.full_name ?? "") : (profile?.full_name ?? "");
+  const nombre = modoEdicion
+    ? (nombreInput ?? profile?.full_name ?? "")
+    : (profile?.full_name ?? "");
   const email = profile?.email ?? user?.email ?? "";
-  const telefono = modoEdicion ? (telefonoInput ?? profile?.telefono ?? "") : (profile?.telefono ?? "");
+  const telefono = modoEdicion
+    ? (telefonoInput ?? profile?.telefono ?? "")
+    : (profile?.telefono ?? "");
   const avatarUrl = profile?.avatar_url ?? null;
   const rol: RolUsuario = (profile?.rol as RolUsuario) ?? "cliente";
 
   const handlePickAvatar = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permiso denegado", "Se requieren permisos para acceder a la galería.");
+      Alert.alert(
+        "Permiso denegado",
+        "Se requieren permisos para acceder a la galería.",
+      );
       return;
     }
 
@@ -76,6 +81,40 @@ export const useAccount = () => {
       Alert.alert("Éxito", "Perfil actualizado correctamente.");
     } catch (error: any) {
       Alert.alert("Error", error.message || "No se pudo actualizar el perfil.");
+    }
+  };
+
+  // Función para manejar el cambio de contraseña usando changePassword de authService
+  const handleCambiarPassword = async () => {
+    if (!passActual.trim() || !passNueva.trim()) {
+      Alert.alert(
+        "Error",
+        "Por favor completa todos los campos de contraseña.",
+      );
+      return;
+    }
+
+    if (passNueva.length < 6) {
+      Alert.alert(
+        "Error",
+        "La nueva contraseña debe tener al menos 6 caracteres.",
+      );
+      return;
+    }
+
+    try {
+      // Llamada correcta al método changePassword definido en authService
+      await authService.changePassword(passActual, passNueva);
+
+      Alert.alert("Éxito", "Contraseña actualizada correctamente.");
+      setModalPasswordVisible(false);
+      setPassActual("");
+      setPassNueva("");
+    } catch (error: any) {
+      Alert.alert(
+        "Error",
+        error.message || "No se pudo cambiar la contraseña.",
+      );
     }
   };
 
@@ -124,6 +163,7 @@ export const useAccount = () => {
     isSigningOut,
     handlePickAvatar,
     handleGuardarPerfil,
+    handleCambiarPassword,
     handleCerrarSesion,
   };
 };

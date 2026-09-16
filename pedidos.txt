@@ -1,0 +1,664 @@
+// app/(tabs)/pedidos.tsx
+// Panel de pedidos profesional — DATOS ESTÁTICOS (mock) para maquetar la UI.
+// Reemplaza MOCK_PEDIDOS / MOCK_PIEZAS_TOP por tus hooks reales (usePedidos,
+// usePedidoActions, etc.) cuando conectes esto a Supabase.
+// Requiere: @expo/vector-icons (viene con Expo).
+
+import { Ionicons } from "@expo/vector-icons";
+import React, { useMemo, useState } from "react";
+import {
+  FlatList,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+// ────────────────────────────────────────────────────────────────────────────
+// THEME
+// ────────────────────────────────────────────────────────────────────────────
+
+const theme = {
+  bg: "#0B1120",
+  card: "#141B2E",
+  cardAlt: "#1B2438",
+  border: "#232D45",
+  text: "#F1F5F9",
+  textMuted: "#8A93A8",
+  primary: "#6366F1",
+  success: "#22C55E",
+  successBg: "#0F2A1B",
+  warning: "#F59E0B",
+  warningBg: "#2E210A",
+  danger: "#EF4444",
+  dangerBg: "#2E1414",
+  info: "#38BDF8",
+  infoBg: "#0A2536",
+};
+
+// ────────────────────────────────────────────────────────────────────────────
+// TIPOS
+// ────────────────────────────────────────────────────────────────────────────
+
+type EstadoPedido = "pendiente" | "en_impresion" | "listo" | "entregado";
+type EstadoPago = "sin_pagar" | "anticipo" | "pagado";
+type EnvioTipo = "recogida" | "domicilio" | "transporte";
+
+interface ChecklistItem {
+  id: string;
+  label: string;
+  hecho: boolean;
+}
+
+interface EventoPedido {
+  id: string;
+  texto: string;
+  fecha: string;
+}
+
+interface PedidoUI {
+  id: string;
+  codigo: string;
+  cliente: { nombre: string; telefono: string; direccion?: string };
+  piezaDescripcion: string;
+  estado: EstadoPedido;
+  fechaEstimadaListo: string;
+  horasImpresionEstimadas: number;
+  urgente: boolean;
+  pago: {
+    estado: EstadoPago;
+    total: number;
+    anticipoPct: number;
+    montoCobrado: number;
+    metodo: "efectivo" | "qr";
+    verificado: boolean;
+  };
+  envio: {
+    tipo: EnvioTipo;
+    costo: number;
+    tracking?: string;
+  };
+  impresion?: {
+    impresora: string;
+    filamento: string;
+    gramosPlanificados: number;
+    horasPlanificadas: number;
+    resultado: "en_progreso" | "pendiente" | "exitoso" | "fallo";
+  };
+  checklist: ChecklistItem[];
+  eventos: EventoPedido[];
+}
+
+interface PiezaTopUI {
+  id: string;
+  nombre: string;
+  vecesCotizada: number;
+  precioPromedio: number;
+  ultimaVez: string;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// DATOS ESTÁTICOS (MOCK)
+// ────────────────────────────────────────────────────────────────────────────
+
+const MOCK_PEDIDOS: PedidoUI[] = [
+  {
+    id: "1",
+    codigo: "PED-0212",
+    cliente: { nombre: "María Fernández", telefono: "+591 700 12345", direccion: "Av. Hernando Siles #245" },
+    piezaDescripcion: "Figura Goku 20cm (PLA negro)",
+    estado: "en_impresion",
+    fechaEstimadaListo: "Hoy 18:00",
+    horasImpresionEstimadas: 6,
+    urgente: true,
+    pago: { estado: "anticipo", total: 120, anticipoPct: 50, montoCobrado: 60, metodo: "qr", verificado: true },
+    envio: { tipo: "recogida", costo: 0 },
+    impresion: { impresora: "Bambu Lab P1S", filamento: "PLA Negro", gramosPlanificados: 340, horasPlanificadas: 6, resultado: "en_progreso" },
+    checklist: [
+      { id: "c1", label: "Verificar acabado superficial", hecho: true },
+      { id: "c2", label: "Retirar soportes", hecho: false },
+      { id: "c3", label: "Empaque final", hecho: false },
+    ],
+    eventos: [
+      { id: "e1", texto: "Pago anticipo verificado", fecha: "hace 2 días" },
+      { id: "e2", texto: "Impresión iniciada", fecha: "hace 3h" },
+    ],
+  },
+  {
+    id: "2",
+    codigo: "PED-0210",
+    cliente: { nombre: "Carlos Rojas", telefono: "+591 700 98765", direccion: "Zona Central, calle Bolívar 88" },
+    piezaDescripcion: "Set de llaveros personalizados x12",
+    estado: "listo",
+    fechaEstimadaListo: "Listo desde ayer",
+    horasImpresionEstimadas: 4,
+    urgente: false,
+    pago: { estado: "pagado", total: 180, anticipoPct: 50, montoCobrado: 180, metodo: "efectivo", verificado: true },
+    envio: { tipo: "domicilio", costo: 15, tracking: undefined },
+    checklist: [
+      { id: "c1", label: "Control de calidad", hecho: true },
+      { id: "c2", label: "Empaque final", hecho: true },
+    ],
+    eventos: [
+      { id: "e1", texto: "Impresión finalizada sin errores", fecha: "hace 1 día" },
+      { id: "e2", texto: "Pago final confirmado", fecha: "hace 20h" },
+    ],
+  },
+  {
+    id: "3",
+    codigo: "PED-0208",
+    cliente: { nombre: "Taller Ávalos", telefono: "+591 700 55511" },
+    piezaDescripcion: "Organizador de escritorio modular",
+    estado: "pendiente",
+    fechaEstimadaListo: "Sin definir",
+    horasImpresionEstimadas: 5,
+    urgente: false,
+    pago: { estado: "sin_pagar", total: 65, anticipoPct: 50, montoCobrado: 0, metodo: "qr", verificado: false },
+    envio: { tipo: "recogida", costo: 0 },
+    checklist: [{ id: "c1", label: "Confirmar diseño con cliente", hecho: false }],
+    eventos: [{ id: "e1", texto: "Pedido creado desde cotización COT-0150", fecha: "hace 4h" }],
+  },
+  {
+    id: "4",
+    codigo: "PED-0205",
+    cliente: { nombre: "Jorge Quispe", telefono: "+591 700 33221" },
+    piezaDescripcion: "Soporte celular articulado x3",
+    estado: "entregado",
+    fechaEstimadaListo: "Entregado",
+    horasImpresionEstimadas: 3,
+    urgente: false,
+    pago: { estado: "pagado", total: 135, anticipoPct: 50, montoCobrado: 135, metodo: "efectivo", verificado: true },
+    envio: { tipo: "transporte", costo: 20, tracking: "BOL-88213" },
+    checklist: [
+      { id: "c1", label: "Control de calidad", hecho: true },
+      { id: "c2", label: "Empaque final", hecho: true },
+      { id: "c3", label: "Entrega confirmada", hecho: true },
+    ],
+    eventos: [{ id: "e1", texto: "Pedido entregado", fecha: "hace 5 días" }],
+  },
+];
+
+const MOCK_PIEZAS_TOP: PiezaTopUI[] = [
+  { id: "p1", nombre: "Soporte celular articulado", vecesCotizada: 23, precioPromedio: 45, ultimaVez: "hace 2 días" },
+  { id: "p2", nombre: "Maceta geométrica 12cm", vecesCotizada: 19, precioPromedio: 38, ultimaVez: "hace 5 días" },
+  { id: "p3", nombre: "Llavero personalizado", vecesCotizada: 17, precioPromedio: 15, ultimaVez: "ayer" },
+  { id: "p4", nombre: "Figura Goku 20cm", vecesCotizada: 14, precioPromedio: 120, ultimaVez: "hoy" },
+];
+
+// ────────────────────────────────────────────────────────────────────────────
+// HELPERS / CONFIG
+// ────────────────────────────────────────────────────────────────────────────
+
+const fmtMoneda = (n: number) => `Bs ${n.toLocaleString("es-BO")}`;
+
+const ESTADO_CFG: Record<EstadoPedido, { label: string; color: string; bg: string; icon: keyof typeof Ionicons.glyphMap }> = {
+  pendiente: { label: "Pendiente", color: theme.warning, bg: theme.warningBg, icon: "hourglass-outline" },
+  en_impresion: { label: "En impresión", color: theme.info, bg: theme.infoBg, icon: "play-circle-outline" },
+  listo: { label: "Listo", color: theme.success, bg: theme.successBg, icon: "checkmark-circle-outline" },
+  entregado: { label: "Entregado", color: theme.textMuted, bg: theme.cardAlt, icon: "checkmark-done-outline" },
+};
+
+const PAGO_CFG: Record<EstadoPago, { label: string; color: string; bg: string }> = {
+  sin_pagar: { label: "Sin pagar", color: theme.danger, bg: theme.dangerBg },
+  anticipo: { label: "Anticipo pagado", color: theme.warning, bg: theme.warningBg },
+  pagado: { label: "Pagado", color: theme.success, bg: theme.successBg },
+};
+
+const ENVIO_LABEL: Record<EnvioTipo, string> = {
+  recogida: "Recogida en local",
+  domicilio: "Envío a domicilio",
+  transporte: "Empresa de transporte",
+};
+
+const FILTROS: { key: "todos" | EstadoPedido; label: string }[] = [
+  { key: "todos", label: "Todos" },
+  { key: "pendiente", label: "Pendientes" },
+  { key: "en_impresion", label: "En impresión" },
+  { key: "listo", label: "Listos" },
+  { key: "entregado", label: "Entregados" },
+];
+
+// ────────────────────────────────────────────────────────────────────────────
+// SUBCOMPONENTES
+// ────────────────────────────────────────────────────────────────────────────
+
+function KpiChip({ icon, label, value, color }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; color: string }) {
+  return (
+    <View style={styles.kpiChip}>
+      <View style={[styles.kpiIconWrap, { backgroundColor: color + "22" }]}>
+        <Ionicons name={icon} size={16} color={color} />
+      </View>
+      <View>
+        <Text style={styles.kpiValue}>{value}</Text>
+        <Text style={styles.kpiLabel}>{label}</Text>
+      </View>
+    </View>
+  );
+}
+
+function PiezaTopChip({ pieza }: { pieza: PiezaTopUI }) {
+  return (
+    <View style={styles.piezaChip}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.piezaNombre} numberOfLines={1}>{pieza.nombre}</Text>
+        <Text style={styles.piezaMeta}>{pieza.vecesCotizada} veces · {fmtMoneda(pieza.precioPromedio)} prom.</Text>
+      </View>
+      <Pressable style={styles.reCotizarBtn}>
+        <Ionicons name="refresh" size={13} color="#fff" />
+      </Pressable>
+    </View>
+  );
+}
+
+function PedidoCard({ pedido, onPress }: { pedido: PedidoUI; onPress: () => void }) {
+  const cfg = ESTADO_CFG[pedido.estado];
+  const pagoCfg = PAGO_CFG[pedido.pago.estado];
+  const checklistDone = pedido.checklist.filter((c) => c.hecho).length;
+
+  return (
+    <Pressable style={styles.pedidoCard} onPress={onPress}>
+      <View style={styles.sectionHeaderRow}>
+        <View style={styles.pedidoCodigoRow}>
+          <Text style={styles.pedidoCodigo}>{pedido.codigo}</Text>
+          {pedido.urgente && (
+            <View style={styles.urgenteBadge}>
+              <Ionicons name="flame" size={11} color={theme.danger} />
+              <Text style={styles.urgenteBadgeText}>Urgente</Text>
+            </View>
+          )}
+        </View>
+        <View style={[styles.estadoPill, { backgroundColor: cfg.bg }]}>
+          <Ionicons name={cfg.icon} size={12} color={cfg.color} />
+          <Text style={[styles.estadoPillText, { color: cfg.color }]}>{cfg.label}</Text>
+        </View>
+      </View>
+
+      <Text style={styles.pedidoCliente}>{pedido.cliente.nombre}</Text>
+      <Text style={styles.pedidoPieza} numberOfLines={1}>{pedido.piezaDescripcion}</Text>
+
+      <View style={styles.pedidoFootRow}>
+        <View style={[styles.pagoPill, { backgroundColor: pagoCfg.bg }]}>
+          <Text style={[styles.pagoPillText, { color: pagoCfg.color }]}>{pagoCfg.label}</Text>
+        </View>
+        <View style={styles.pedidoFootItem}>
+          <Ionicons name="cube-outline" size={12} color={theme.textMuted} />
+          <Text style={styles.pedidoFootText}>
+            {ENVIO_LABEL[pedido.envio.tipo]}
+          </Text>
+        </View>
+        <View style={styles.pedidoFootItem}>
+          <Ionicons name="checkbox-outline" size={12} color={theme.textMuted} />
+          <Text style={styles.pedidoFootText}>{checklistDone}/{pedido.checklist.length}</Text>
+        </View>
+      </View>
+
+      <View style={styles.pedidoTimeRow}>
+        <Ionicons name="time-outline" size={12} color={theme.textMuted} />
+        <Text style={styles.pedidoTimeText}>{pedido.fechaEstimadaListo}</Text>
+        <Text style={styles.pedidoMontoText}>{fmtMoneda(pedido.pago.total)}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function DetallePedidoModal({ pedido, onClose }: { pedido: PedidoUI | null; onClose: () => void }) {
+  if (!pedido) return null;
+  const cfg = ESTADO_CFG[pedido.estado];
+  const pagoCfg = PAGO_CFG[pedido.pago.estado];
+  const saldo = pedido.pago.total - pedido.pago.montoCobrado;
+
+  return (
+    <Modal visible={!!pedido} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+            <View style={styles.modalHandle} />
+
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.modalTitle}>{pedido.codigo}</Text>
+              <Pressable onPress={onClose} hitSlop={10}>
+                <Ionicons name="close" size={22} color={theme.textMuted} />
+              </Pressable>
+            </View>
+
+            <View style={[styles.estadoPill, { backgroundColor: cfg.bg, alignSelf: "flex-start" }]}>
+              <Ionicons name={cfg.icon} size={13} color={cfg.color} />
+              <Text style={[styles.estadoPillText, { color: cfg.color }]}>{cfg.label}</Text>
+            </View>
+
+            {/* Cliente */}
+            <View style={styles.modalBlock}>
+              <Text style={styles.modalBlockTitle}>Cliente</Text>
+              <Text style={styles.modalLine}>{pedido.cliente.nombre}</Text>
+              <Text style={styles.modalLineMuted}>{pedido.cliente.telefono}</Text>
+              {pedido.cliente.direccion ? <Text style={styles.modalLineMuted}>{pedido.cliente.direccion}</Text> : null}
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+                <Pressable style={styles.contactBtn}>
+                  <Ionicons name="call-outline" size={14} color={theme.text} />
+                  <Text style={styles.contactBtnText}>Llamar</Text>
+                </Pressable>
+                <Pressable style={[styles.contactBtn, { backgroundColor: theme.successBg }]}>
+                  <Ionicons name="logo-whatsapp" size={14} color={theme.success} />
+                  <Text style={[styles.contactBtnText, { color: theme.success }]}>WhatsApp</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Pieza */}
+            <View style={styles.modalBlock}>
+              <Text style={styles.modalBlockTitle}>Pieza</Text>
+              <Text style={styles.modalLine}>{pedido.piezaDescripcion}</Text>
+              {pedido.impresion ? (
+                <>
+                  <Text style={styles.modalLineMuted}>
+                    {pedido.impresion.impresora} · {pedido.impresion.filamento}
+                  </Text>
+                  <Text style={styles.modalLineMuted}>
+                    {pedido.impresion.gramosPlanificados}g planificados · {pedido.impresion.horasPlanificadas}h de impresión
+                  </Text>
+                </>
+              ) : null}
+            </View>
+
+            {/* Pago */}
+            <View style={styles.modalBlock}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.modalBlockTitle}>Pago</Text>
+                <View style={[styles.pagoPill, { backgroundColor: pagoCfg.bg }]}>
+                  <Text style={[styles.pagoPillText, { color: pagoCfg.color }]}>{pagoCfg.label}</Text>
+                </View>
+              </View>
+              <View style={styles.pagoGrid}>
+                <View>
+                  <Text style={styles.modalLineMuted}>Total</Text>
+                  <Text style={styles.modalLine}>{fmtMoneda(pedido.pago.total)}</Text>
+                </View>
+                <View>
+                  <Text style={styles.modalLineMuted}>Cobrado</Text>
+                  <Text style={styles.modalLine}>{fmtMoneda(pedido.pago.montoCobrado)}</Text>
+                </View>
+                <View>
+                  <Text style={styles.modalLineMuted}>Saldo</Text>
+                  <Text style={[styles.modalLine, saldo > 0 && { color: theme.warning }]}>{fmtMoneda(saldo)}</Text>
+                </View>
+              </View>
+              <Text style={styles.modalLineMuted}>
+                Método: {pedido.pago.metodo.toUpperCase()} · {pedido.pago.verificado ? "Comprobante verificado" : "Pendiente de verificar"}
+              </Text>
+              {pedido.pago.estado !== "pagado" && (
+                <Pressable style={styles.primaryBtn}>
+                  <Text style={styles.primaryBtnText}>
+                    {pedido.pago.estado === "sin_pagar" ? "Verificar pago y pasar a producción" : "Confirmar pago y entrega"}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+
+            {/* Envío */}
+            <View style={styles.modalBlock}>
+              <Text style={styles.modalBlockTitle}>Envío</Text>
+              <Text style={styles.modalLine}>{ENVIO_LABEL[pedido.envio.tipo]}</Text>
+              {pedido.envio.costo > 0 && <Text style={styles.modalLineMuted}>Costo: {fmtMoneda(pedido.envio.costo)}</Text>}
+              {pedido.envio.tracking && <Text style={styles.modalLineMuted}>Tracking: {pedido.envio.tracking}</Text>}
+            </View>
+
+            {/* Checklist */}
+            <View style={styles.modalBlock}>
+              <Text style={styles.modalBlockTitle}>Checklist de entrega</Text>
+              {pedido.checklist.map((item) => (
+                <Pressable key={item.id} style={styles.checklistRow}>
+                  <Ionicons
+                    name={item.hecho ? "checkbox" : "square-outline"}
+                    size={18}
+                    color={item.hecho ? theme.success : theme.textMuted}
+                  />
+                  <Text style={[styles.checklistText, item.hecho && { color: theme.textMuted, textDecorationLine: "line-through" }]}>
+                    {item.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* Timeline */}
+            <View style={styles.modalBlock}>
+              <Text style={styles.modalBlockTitle}>Historial</Text>
+              {pedido.eventos.map((ev) => (
+                <View key={ev.id} style={styles.eventoRow}>
+                  <View style={styles.eventoDot} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modalLine}>{ev.texto}</Text>
+                    <Text style={styles.modalLineMuted}>{ev.fecha}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SCREEN
+// ────────────────────────────────────────────────────────────────────────────
+
+export default function PedidosScreen() {
+  const [filtro, setFiltro] = useState<"todos" | EstadoPedido>("todos");
+  const [busqueda, setBusqueda] = useState("");
+  const [pedidoActivo, setPedidoActivo] = useState<PedidoUI | null>(null);
+
+  const conteos = useMemo(() => {
+    const base: Record<string, number> = { todos: MOCK_PEDIDOS.length };
+    (["pendiente", "en_impresion", "listo", "entregado"] as EstadoPedido[]).forEach((k) => {
+      base[k] = MOCK_PEDIDOS.filter((p) => p.estado === k).length;
+    });
+    return base;
+  }, []);
+
+  const kpis = useMemo(() => {
+    const porCobrar = MOCK_PEDIDOS.reduce((acc, p) => acc + (p.pago.total - p.pago.montoCobrado), 0);
+    const urgentes = MOCK_PEDIDOS.filter((p) => p.urgente).length;
+    const activos = MOCK_PEDIDOS.filter((p) => p.estado !== "entregado").length;
+    const listos = MOCK_PEDIDOS.filter((p) => p.estado === "listo").length;
+    return { porCobrar, urgentes, activos, listos };
+  }, []);
+
+  const pedidosFiltrados = useMemo(() => {
+    return MOCK_PEDIDOS.filter((p) => {
+      const pasaFiltro = filtro === "todos" || p.estado === filtro;
+      const pasaBusqueda =
+        busqueda.trim().length === 0 ||
+        p.codigo.toLowerCase().includes(busqueda.toLowerCase()) ||
+        p.cliente.nombre.toLowerCase().includes(busqueda.toLowerCase());
+      return pasaFiltro && pasaBusqueda;
+    });
+  }, [filtro, busqueda]);
+
+  return (
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <FlatList
+        data={pedidosFiltrados}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        renderItem={({ item }) => <PedidoCard pedido={item} onPress={() => setPedidoActivo(item)} />}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Ionicons name="file-tray-outline" size={30} color={theme.textMuted} />
+            <Text style={styles.emptyTitle}>No hay pedidos en este filtro</Text>
+          </View>
+        }
+        ListHeaderComponent={
+          <View style={{ gap: 18, marginBottom: 6 }}>
+            <Text style={styles.screenTitle}>Pedidos</Text>
+
+            {/* KPIs */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 16 }}>
+              <KpiChip icon="albums-outline" label="Activos" value={`${kpis.activos}`} color={theme.primary} />
+              <KpiChip icon="cash-outline" label="Por cobrar" value={fmtMoneda(kpis.porCobrar)} color={theme.warning} />
+              <KpiChip icon="flame-outline" label="Urgentes" value={`${kpis.urgentes}`} color={theme.danger} />
+              <KpiChip icon="checkmark-circle-outline" label="Listos" value={`${kpis.listos}`} color={theme.success} />
+            </ScrollView>
+
+            {/* Piezas más cotizadas */}
+            <View>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>Piezas más cotizadas</Text>
+                <Text style={styles.sectionAction}>Ver todas</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 16 }}>
+                {MOCK_PIEZAS_TOP.map((p) => (
+                  <PiezaTopChip key={p.id} pieza={p} />
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* Buscador */}
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={16} color={theme.textMuted} />
+              <TextInput
+                value={busqueda}
+                onChangeText={setBusqueda}
+                placeholder="Buscar por código o cliente"
+                placeholderTextColor={theme.textMuted}
+                style={styles.searchInput}
+              />
+            </View>
+
+            {/* Filtros */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 16 }}>
+              {FILTROS.map((f) => {
+                const activo = filtro === f.key;
+                return (
+                  <Pressable
+                    key={f.key}
+                    onPress={() => setFiltro(f.key)}
+                    style={[styles.filtroChip, activo && { backgroundColor: theme.primary, borderColor: theme.primary }]}
+                  >
+                    <Text style={[styles.filtroChipText, activo && { color: "#fff" }]}>
+                      {f.label} · {conteos[f.key] ?? 0}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        }
+      />
+
+      <DetallePedidoModal pedido={pedidoActivo} onClose={() => setPedidoActivo(null)} />
+    </SafeAreaView>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// STYLES
+// ────────────────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: theme.bg },
+  listContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 32, gap: 12 },
+
+  screenTitle: { color: theme.text, fontSize: 22, fontWeight: "800" },
+
+  sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  sectionTitle: { color: theme.text, fontSize: 15, fontWeight: "700" },
+  sectionAction: { color: theme.primary, fontSize: 12.5, fontWeight: "600" },
+
+  kpiChip: {
+    flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.card,
+    borderRadius: 14, padding: 10, borderWidth: 1, borderColor: theme.border, minWidth: 130,
+  },
+  kpiIconWrap: { width: 30, height: 30, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  kpiValue: { color: theme.text, fontSize: 14, fontWeight: "800" },
+  kpiLabel: { color: theme.textMuted, fontSize: 10.5 },
+
+  piezaChip: {
+    flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: theme.card,
+    borderRadius: 14, padding: 10, borderWidth: 1, borderColor: theme.border, width: 190,
+  },
+  piezaNombre: { color: theme.text, fontSize: 12.5, fontWeight: "700" },
+  piezaMeta: { color: theme.textMuted, fontSize: 10.5, marginTop: 1 },
+  reCotizarBtn: { width: 28, height: 28, borderRadius: 9, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" },
+
+  searchBox: {
+    flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.card,
+    borderRadius: 14, paddingHorizontal: 12, height: 44, borderWidth: 1, borderColor: theme.border,
+  },
+  searchInput: { flex: 1, color: theme.text, fontSize: 13 },
+
+  filtroChip: {
+    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8,
+    backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border,
+  },
+  filtroChipText: { color: theme.textMuted, fontSize: 12, fontWeight: "600" },
+
+  pedidoCard: {
+    backgroundColor: theme.card, borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: theme.border, gap: 6,
+  },
+  pedidoCodigoRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  pedidoCodigo: { color: theme.text, fontSize: 14, fontWeight: "800" },
+  urgenteBadge: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: theme.dangerBg, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
+  urgenteBadgeText: { color: theme.danger, fontSize: 10, fontWeight: "700" },
+  estadoPill: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  estadoPillText: { fontSize: 11, fontWeight: "700" },
+
+  pedidoCliente: { color: theme.text, fontSize: 13.5, fontWeight: "700" },
+  pedidoPieza: { color: theme.textMuted, fontSize: 12.5 },
+
+  pedidoFootRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 },
+  pagoPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  pagoPillText: { fontSize: 10.5, fontWeight: "700" },
+  pedidoFootItem: { flexDirection: "row", alignItems: "center", gap: 3 },
+  pedidoFootText: { color: theme.textMuted, fontSize: 11 },
+
+  pedidoTimeRow: {
+    flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6,
+    borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 8,
+  },
+  pedidoTimeText: { color: theme.textMuted, fontSize: 11.5, flex: 1 },
+  pedidoMontoText: { color: theme.text, fontSize: 13, fontWeight: "800" },
+
+  emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 60, gap: 8 },
+  emptyTitle: { color: theme.textMuted, fontSize: 13 },
+
+  // Modal
+  modalBackdrop: { flex: 1, backgroundColor: "#00000099", justifyContent: "flex-end" },
+  modalSheet: {
+    backgroundColor: theme.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 18, paddingTop: 10, maxHeight: "88%",
+  },
+  modalHandle: { width: 40, height: 4, borderRadius: 3, backgroundColor: theme.border, alignSelf: "center", marginBottom: 14 },
+  modalTitle: { color: theme.text, fontSize: 18, fontWeight: "800" },
+
+  modalBlock: {
+    backgroundColor: theme.card, borderRadius: 16, padding: 14, marginTop: 14,
+    borderWidth: 1, borderColor: theme.border, gap: 4,
+  },
+  modalBlockTitle: { color: theme.textMuted, fontSize: 11.5, fontWeight: "700", textTransform: "uppercase", marginBottom: 4 },
+  modalLine: { color: theme.text, fontSize: 13.5, fontWeight: "600" },
+  modalLineMuted: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
+
+  contactBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.cardAlt,
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
+  },
+  contactBtnText: { color: theme.text, fontSize: 12, fontWeight: "600" },
+
+  pagoGrid: { flexDirection: "row", justifyContent: "space-between", marginTop: 6, marginBottom: 6 },
+
+  primaryBtn: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 12, alignItems: "center", marginTop: 10 },
+  primaryBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+
+  checklistRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
+  checklistText: { color: theme.text, fontSize: 13 },
+
+  eventoRow: { flexDirection: "row", gap: 10, paddingVertical: 6 },
+  eventoDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: theme.primary, marginTop: 6 },
+});

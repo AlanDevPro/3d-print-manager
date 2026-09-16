@@ -9,7 +9,7 @@ import {
   PARAMETROS_VACIOS,
   TarifasMoneda,
 } from "@/features/parametros/types";
-import React, { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -429,7 +429,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "flex-end",
   },
-  overlay: { ...StyleSheet.absoluteFillObject },
+  overlay: { ...StyleSheet.absoluteFill },
   drawer: {
     height: "100%",
     borderTopLeftRadius: radii.lg,

@@ -7,6 +7,7 @@ export * from "./types";
 
 export * from "./hooks/usePedidoActions";
 export * from "./hooks/usePedidos";
+export * from "./hooks/useImpresionPedido";
 
 export * from "./components/DetallePedidoModal";
 export * from "./components/PedidoCard";

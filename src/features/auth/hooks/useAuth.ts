@@ -12,7 +12,7 @@ export const useAuth = () => {
 
   /**
    * Helper opcional para registrar el Push Token del usuario tras la autenticación.
-   * Llama a esta función inmediatamente después de realizar un login exitoso.
+   * Llama a esta función de manera limpia sin interferir con el ciclo de vida del router.
    */
   const vincularPushToken = async (userId: string, empresaId: string) => {
     try {

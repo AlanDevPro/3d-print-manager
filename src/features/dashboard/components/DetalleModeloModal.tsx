@@ -1,14 +1,13 @@
 // src/features/dashboard/components/DetalleModeloModal.tsx
 import { formatBs } from "@/utils/format";
-import React from "react";
 import {
-    Image,
-    Modal,
-    Pressable,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Image,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { ModeloUI } from "../types";
 import { DetalleItem } from "./DetalleItem";
@@ -74,13 +73,13 @@ export function DetalleModeloModal({
                   theme={theme}
                   icono="color-palette-outline"
                   label="Material / Color"
-                  valor={`${modelo.material} · ${modelo.color}`}
+                  valor={`${modelo.nombre} · ${modelo.nombre}`}
                 />
                 <DetalleItem
                   theme={theme}
                   icono="pricetag-outline"
                   label="Precio sugerido"
-                  valor={formatBs(modelo.precioSugerido)}
+                  valor={formatBs(modelo.precioReferencia)}
                   destacado
                 />
               </View>

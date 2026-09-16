@@ -1,6 +1,5 @@
-// src/features/inventario/components/ImpresoraCard.tsx
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
+import React, { useState } from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { ESTADO_IMPRESORA_CFG } from "../constants";
 import type { Impresora } from "../types";
@@ -11,42 +10,25 @@ type Props = {
   onPress: () => void;
 };
 
-// Colección de imágenes estáticas de impresoras 3D para fallback/pruebas
-const STATIC_PRINTER_IMAGES = [
-  "https://images.unsplash.com/photo-1612815154858-60aa4c59eaa6?q=80&w=600&auto=format&fit=crop", // Impresora FDM activa
-  "https://images.unsplash.com/photo-1581092160607-ee22621dd758?q=80&w=600&auto=format&fit=crop", // Impresora en laboratorio
-  "https://images.unsplash.com/photo-1581092335397-9583fe92d232?q=80&w=600&auto=format&fit=crop", // Cama de impresión 3D
-  "https://images.unsplash.com/photo-1615840241336-79b20b72740b?q=80&w=600&auto=format&fit=crop", // Detalle Extrusor/Nozzle
-];
 
-/**
- * Retorna una imagen estática determinista basada en el ID o modelo de la impresora
- */
-function getStaticPrinterImage(impresora: Impresora): string {
-  if (impresora.imagenUrl) return impresora.imagenUrl;
-
-  const key = impresora.id || impresora.modelo || "default";
-  const index =
-    Math.abs(
-      key.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0)
-    ) % STATIC_PRINTER_IMAGES.length;
-
-  return STATIC_PRINTER_IMAGES[index];
-}
 
 export function ImpresoraCard({ theme, impresora, onPress }: Props) {
+  const [imageError, setImageError] = useState(false);
   const cfg = ESTADO_IMPRESORA_CFG[impresora.estado];
-  
+
   // Porcentaje de vida útil consumida
   const vidaUtilPct = Math.min(
     100,
     Math.round((impresora.horasUsoTotal / impresora.vidaUtilHoras) * 100)
   );
-  
+
   const colorVida =
     vidaUtilPct > 85 ? "#EF4444" : vidaUtilPct > 60 ? "#F59E0B" : "#22C55E";
 
-  const imageUri = getStaticPrinterImage(impresora);
+  const imageUri =
+    !imageError && impresora.imagenUrl
+      ? impresora.imagenUrl
+      : "https://cdn-icons-png.flaticon.com/512/1828/1828817.png";
 
   return (
     <TouchableOpacity
@@ -65,12 +47,13 @@ export function ImpresoraCard({ theme, impresora, onPress }: Props) {
       activeOpacity={0.88}
       onPress={onPress}
     >
-      {/* --- ÁREA PRINCIPAL: IMAGEN A BORDES COMPLETOS --- */}
+      {/* Área Principal: Imagen de la Impresora */}
       <View style={styles.imageContainer}>
         <Image
           source={{ uri: imageUri }}
           style={styles.printerImage}
           resizeMode="cover"
+          onError={() => setImageError(true)}
         />
 
         {/* Badge Superior Izquierdo: Modelo */}
@@ -95,7 +78,7 @@ export function ImpresoraCard({ theme, impresora, onPress }: Props) {
         )}
       </View>
 
-      {/* --- BARRA DE PROGRESO DE VIDA ÚTIL --- */}
+      {/* Barra de Progreso de Vida Útil */}
       <View
         style={[
           styles.barraFondo,
@@ -110,9 +93,8 @@ export function ImpresoraCard({ theme, impresora, onPress }: Props) {
         />
       </View>
 
-      {/* --- FOOTER INFERIOR ESTILO CATÁLOGO --- */}
+      {/* Footer Estilo Catálogo */}
       <View style={styles.footerContainer}>
-        {/* Izquierda: Badge de Estado Actual */}
         <View
           style={[
             styles.estadoBadge,
@@ -128,7 +110,6 @@ export function ImpresoraCard({ theme, impresora, onPress }: Props) {
           </Text>
         </View>
 
-        {/* Derecha: Horas de uso / % Vida */}
         <Text style={[styles.horasTexto, { color: colorVida }]}>
           {impresora.horasUsoTotal}h uso
         </Text>

@@ -34,6 +34,6 @@ export const EMPRESA_DEFAULT = {
   tagline: "IMPRESIÓN 3D",
   logoUri: undefined as string | undefined,
   sitioWeb: "https://www.wolfbol.com",
-  validezDias: 7,
+  validezDias: 24,
   politicas: POLITICAS_DEFAULT,
 };

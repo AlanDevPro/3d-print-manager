@@ -71,13 +71,13 @@ export function mapResultadoToVoucher(
   return {
     companyName,
     companyTagline: EMPRESA_DEFAULT.tagline,
-    documentTitle: "COTIZACIÓN COMERCIAL",
+    documentTitle: "COTIZACIÓN ",
     issueDateLabel: new Date().toLocaleDateString("es-BO", {
       day: "2-digit",
       month: "long",
       year: "numeric",
     }),
-    validityLabel: `Cotización válida por ${EMPRESA_DEFAULT.validezDias} días`,
+    validityLabel: `Cotización válida por ${EMPRESA_DEFAULT.validezDias} horas`,
     logoUri,
     productImageUri: especificaciones?.imagenUri,
     unitPriceLabel: "PRECIO UNITARIO",

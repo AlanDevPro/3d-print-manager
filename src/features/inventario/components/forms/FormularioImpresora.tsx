@@ -22,6 +22,7 @@ interface ErroresFormulario {
   costoAdquisicion?: string;
   vidaUtilHoras?: string;
   costoMantenimientoHora?: string;
+  imagenUrl?: string;
 }
 
 export function FormularioImpresora({
@@ -41,11 +42,16 @@ export function FormularioImpresora({
   const [costoAdquisicion, setCostoAdquisicion] = useState("");
   const [vidaUtilHoras, setVidaUtilHoras] = useState("8000");
   const [costoMantenimientoHora, setCostoMantenimientoHora] = useState("");
-  const [imagenUrl, setImagenUrl] = useState<string | null>(null);
+
+  // Soporta tanto URI local (string de expo-image-picker) como URL remota o nulo
+  const [imagenUri, setImagenUri] = useState<string | null>(null);
+
   const [guardando, setGuardando] = useState(false);
   const [errores, setErrores] = useState<ErroresFormulario>({});
 
-  // --- Selección de Imagen ---
+  const dangerColor = theme.danger || "#EF4444";
+
+  // --- Selección de Imagen (Restringida estrictamente a imágenes) ---
   const seleccionarImagen = async () => {
     const permissionResult =
       await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -63,19 +69,22 @@ export function FormularioImpresora({
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      setImagenUrl(result.assets[0].uri);
+      setImagenUri(result.assets[0].uri);
+      if (errores.imagenUrl) {
+        setErrores((prev) => ({ ...prev, imagenUrl: undefined }));
+      }
     }
   };
 
   const eliminarImagen = () => {
-    setImagenUrl(null);
+    setImagenUri(null);
   };
 
   // --- Máscaras de Sanitización Sincrónicas ---
   const handleEnteroPositive = (
     text: string,
     setter: (val: string) => void,
-    fieldKey: keyof ErroresFormulario
+    fieldKey: keyof ErroresFormulario,
   ) => {
     const cleaned = text.replace(/[^0-9]/g, "");
     setter(cleaned);
@@ -87,7 +96,7 @@ export function FormularioImpresora({
   const handleDecimalPositive = (
     text: string,
     setter: (val: string) => void,
-    fieldKey: keyof ErroresFormulario
+    fieldKey: keyof ErroresFormulario,
   ) => {
     let cleaned = text.replace(",", ".").replace(/[^0-9.]/g, "");
     const parts = cleaned.split(".");
@@ -104,7 +113,7 @@ export function FormularioImpresora({
   const handleTextChange = (
     text: string,
     setter: (val: string) => void,
-    fieldKey: keyof ErroresFormulario
+    fieldKey: keyof ErroresFormulario,
   ) => {
     setter(text);
     if (errores[fieldKey]) {
@@ -122,6 +131,10 @@ export function FormularioImpresora({
 
     if (!modelo.trim()) {
       nuevosErrores.modelo = "El modelo es requerido";
+    }
+
+    if (!imagenUri) {
+      nuevosErrores.imagenUrl = "La fotografía de la impresora es obligatoria";
     }
 
     const consumoNum = Number(consumoWatts);
@@ -163,7 +176,7 @@ export function FormularioImpresora({
     setCostoAdquisicion("");
     setVidaUtilHoras("8000");
     setCostoMantenimientoHora("");
-    setImagenUrl(null);
+    setImagenUri(null);
     setErrores({});
     onClose();
   };
@@ -175,6 +188,13 @@ export function FormularioImpresora({
       return;
     }
 
+    // Adaptamos el payload de acuerdo al servicio unificado
+    const esUriLocal =
+      imagenUri &&
+      (imagenUri.startsWith("file://") ||
+        imagenUri.startsWith("content://") ||
+        imagenUri.startsWith("ph://"));
+
     const nueva: NuevaImpresora = {
       modelo: modelo.trim(),
       marca: marca.trim(),
@@ -182,19 +202,21 @@ export function FormularioImpresora({
       vidaUtilHoras: Number(vidaUtilHoras) || 8000,
       consumoWatts: Number(consumoWatts),
       costoMantenimientoHora: Number(costoMantenimientoHora) || 0,
-      ...(imagenUrl ? { imagenUrl } : {}),
+      // Si es local se pasa a imagenFile para que el servicio la procese y suba a Storage
+      imagenFile: esUriLocal ? imagenUri : undefined,
+      imagenUrl: !esUriLocal ? imagenUri : undefined,
     };
 
     try {
       setGuardando(true);
       await onGuardar(nueva);
       limpiarYCerrar();
+    } catch (error) {
+      console.error("Error al guardar impresora:", error);
     } finally {
       setGuardando(false);
     }
   };
-
-  const dangerColor = theme.danger || "#EF4444";
 
   return (
     <Modal
@@ -217,11 +239,19 @@ export function FormularioImpresora({
               </Text>
             </View>
 
-            {/* --- SECCIÓN DE SELECCIÓN DE IMAGEN --- */}
-            <Campo theme={theme} label="Fotografía de la Impresora">
-              {imagenUrl ? (
+            {/* --- SECCIÓN DE SELECCIÓN DE IMAGEN (OBLIGATORIA) --- */}
+            <Campo
+              theme={theme}
+              label="Fotografía de la Impresora"
+              icon="image-outline"
+              error={errores.imagenUrl}
+            >
+              {imagenUri ? (
                 <View style={styles.imagePreviewContainer}>
-                  <Image source={{ uri: imagenUrl }} style={styles.imagePreview} />
+                  <Image
+                    source={{ uri: imagenUri }}
+                    style={styles.imagePreview}
+                  />
                   <TouchableOpacity
                     style={styles.removeImageBtn}
                     onPress={eliminarImagen}
@@ -235,16 +265,26 @@ export function FormularioImpresora({
                   style={[
                     styles.uploadContainer,
                     {
-                      borderColor: theme.border ? theme.border + "60" : theme.bgSecondary,
+                      borderColor: errores.imagenUrl
+                        ? dangerColor
+                        : theme.border
+                          ? theme.border + "60"
+                          : theme.bgSecondary,
                       backgroundColor: theme.bgSecondary + "40",
                     },
                   ]}
                   onPress={seleccionarImagen}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="camera-outline" size={26} color={theme.primary} />
-                  <Text style={[styles.uploadText, { color: theme.textSecondary }]}>
-                    Toca para subir una foto
+                  <Ionicons
+                    name="camera-outline"
+                    size={26}
+                    color={theme.primary}
+                  />
+                  <Text
+                    style={[styles.uploadText, { color: theme.textSecondary }]}
+                  >
+                    Toca para subir una foto (Obligatorio)
                   </Text>
                 </TouchableOpacity>
               )}
@@ -252,13 +292,21 @@ export function FormularioImpresora({
 
             {/* Marca y Modelo */}
             <View style={styles.filaDoble}>
-              <Campo theme={theme} label="Marca" icon="pricetag-outline" error={errores.marca} flex>
+              <Campo
+                theme={theme}
+                label="Marca"
+                icon="pricetag-outline"
+                error={errores.marca}
+                flex
+              >
                 <TextInput
                   style={[
                     styles.input,
                     {
                       color: theme.textPrimary,
-                      borderColor: errores.marca ? dangerColor : theme.bgSecondary,
+                      borderColor: errores.marca
+                        ? dangerColor
+                        : theme.bgSecondary,
                     },
                   ]}
                   value={marca}
@@ -268,13 +316,21 @@ export function FormularioImpresora({
                 />
               </Campo>
 
-              <Campo theme={theme} label="Modelo" icon="cube-outline" error={errores.modelo} flex>
+              <Campo
+                theme={theme}
+                label="Modelo"
+                icon="cube-outline"
+                error={errores.modelo}
+                flex
+              >
                 <TextInput
                   style={[
                     styles.input,
                     {
                       color: theme.textPrimary,
-                      borderColor: errores.modelo ? dangerColor : theme.bgSecondary,
+                      borderColor: errores.modelo
+                        ? dangerColor
+                        : theme.bgSecondary,
                     },
                   ]}
                   value={modelo}
@@ -287,11 +343,19 @@ export function FormularioImpresora({
 
             {/* Consumo y Costo de Adquisición */}
             <View style={styles.filaDoble}>
-              <Campo theme={theme} label="Consumo" icon="flash-outline" error={errores.consumoWatts} flex>
+              <Campo
+                theme={theme}
+                label="Consumo"
+                icon="flash-outline"
+                error={errores.consumoWatts}
+                flex
+              >
                 <InputConUnidad
                   theme={theme}
                   value={consumoWatts}
-                  onChangeText={(t) => handleEnteroPositive(t, setConsumoWatts, "consumoWatts")}
+                  onChangeText={(t) =>
+                    handleEnteroPositive(t, setConsumoWatts, "consumoWatts")
+                  }
                   unidad="W"
                   keyboardType="numeric"
                   placeholder="220"
@@ -299,11 +363,23 @@ export function FormularioImpresora({
                 />
               </Campo>
 
-              <Campo theme={theme} label="Costo adquisición" icon="cash-outline" error={errores.costoAdquisicion} flex>
+              <Campo
+                theme={theme}
+                label="Costo adquisición"
+                icon="cash-outline"
+                error={errores.costoAdquisicion}
+                flex
+              >
                 <InputConUnidad
                   theme={theme}
                   value={costoAdquisicion}
-                  onChangeText={(t) => handleDecimalPositive(t, setCostoAdquisicion, "costoAdquisicion")}
+                  onChangeText={(t) =>
+                    handleDecimalPositive(
+                      t,
+                      setCostoAdquisicion,
+                      "costoAdquisicion",
+                    )
+                  }
                   unidad="Bs"
                   keyboardType="numeric"
                   placeholder="1400"
@@ -314,22 +390,42 @@ export function FormularioImpresora({
 
             {/* Vida Útil y Mantenimiento */}
             <View style={styles.filaDoble}>
-              <Campo theme={theme} label="Vida útil estimada" icon="time-outline" error={errores.vidaUtilHoras} flex>
+              <Campo
+                theme={theme}
+                label="Vida útil estimada"
+                icon="time-outline"
+                error={errores.vidaUtilHoras}
+                flex
+              >
                 <InputConUnidad
                   theme={theme}
                   value={vidaUtilHoras}
-                  onChangeText={(t) => handleEnteroPositive(t, setVidaUtilHoras, "vidaUtilHoras")}
+                  onChangeText={(t) =>
+                    handleEnteroPositive(t, setVidaUtilHoras, "vidaUtilHoras")
+                  }
                   unidad="h"
                   keyboardType="numeric"
                   hasError={!!errores.vidaUtilHoras}
                 />
               </Campo>
 
-              <Campo theme={theme} label="Mantenimiento" icon="build-outline" error={errores.costoMantenimientoHora} flex>
+              <Campo
+                theme={theme}
+                label="Mantenimiento"
+                icon="build-outline"
+                error={errores.costoMantenimientoHora}
+                flex
+              >
                 <InputConUnidad
                   theme={theme}
                   value={costoMantenimientoHora}
-                  onChangeText={(t) => handleDecimalPositive(t, setCostoMantenimientoHora, "costoMantenimientoHora")}
+                  onChangeText={(t) =>
+                    handleDecimalPositive(
+                      t,
+                      setCostoMantenimientoHora,
+                      "costoMantenimientoHora",
+                    )
+                  }
                   unidad="Bs/h"
                   keyboardType="numeric"
                   placeholder="0.00"
@@ -343,7 +439,9 @@ export function FormularioImpresora({
               style={[
                 styles.guardarBtn,
                 {
-                  backgroundColor: guardando ? theme.bgSecondary : theme.primary,
+                  backgroundColor: guardando
+                    ? theme.bgSecondary
+                    : theme.primary,
                 },
               ]}
               disabled={guardando}
@@ -441,18 +539,14 @@ function Campo({
   return (
     <View style={[styles.campo, flex && { flex: 1 }]}>
       <View style={styles.labelRow}>
-        {icon && (
-          <Ionicons name={icon} size={13} color={theme.textSecondary} />
-        )}
+        {icon && <Ionicons name={icon} size={13} color={theme.textSecondary} />}
         <Text style={[styles.campoLabel, { color: theme.textSecondary }]}>
           {label}
         </Text>
       </View>
       {children}
       {error && (
-        <Text style={[styles.errorText, { color: dangerColor }]}>
-          {error}
-        </Text>
+        <Text style={[styles.errorText, { color: dangerColor }]}>{error}</Text>
       )}
     </View>
   );
@@ -486,7 +580,6 @@ const styles = StyleSheet.create({
   },
   titulo: { fontSize: 18, fontWeight: "800" },
 
-  /* --- Subida de Imagen --- */
   uploadContainer: {
     borderWidth: 1.5,
     borderStyle: "dashed",

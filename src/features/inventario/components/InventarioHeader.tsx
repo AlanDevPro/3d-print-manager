@@ -12,7 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import type { Filamento, SubPestanaInventario } from "../types";
+import type { Filamento, Impresora, SubPestanaInventario } from "../types";
 import { TabBtn } from "./TabBtn";
 
 type Props = {
@@ -22,13 +22,18 @@ type Props = {
   totalFilamentos: number;
   totalImpresoras: number;
   filamentosBajoStock: Filamento[];
+  impresorasLista?: Impresora[];
   onAgregarFilamento?: () => void;
   onAgregarImpresora?: () => void;
+
+  // Modales / Handlers al presionar Cards de Alerta
+  onSelectFilamento?: (filamento: Filamento) => void;
+  onSelectImpresora?: (impresora: Impresora) => void;
 
   // Filtros y Búsqueda
   busqueda: string;
   onCambiarBusqueda: (texto: string) => void;
-  
+
   // Filtros Filamento
   filtroTipo: string;
   onCambiarFiltroTipo: (tipo: string) => void;
@@ -48,6 +53,13 @@ type Props = {
   impresorasRequierenMantenimiento?: number;
 };
 
+// Función auxiliar para formatear tiempo de impresión
+const formatearHorasYMinutos = (horasTotales: number) => {
+  const hrs = Math.floor(horasTotales);
+  const min = Math.round((horasTotales - hrs) * 60);
+  return `${hrs}h ${min}m`;
+};
+
 export function InventarioHeader({
   theme,
   tab,
@@ -55,8 +67,11 @@ export function InventarioHeader({
   totalFilamentos,
   totalImpresoras,
   filamentosBajoStock,
+  impresorasLista = [],
   onAgregarFilamento,
   onAgregarImpresora,
+  onSelectFilamento,
+  onSelectImpresora,
   busqueda,
   onCambiarBusqueda,
   filtroTipo,
@@ -71,12 +86,17 @@ export function InventarioHeader({
   filtroModeloImpresora,
   onCambiarFiltroModeloImpresora,
   modelosImpresoraDisponibles,
-  impresorasRequierenMantenimiento = 0,
 }: Props) {
-  // Estados para controlar los desplegables (Modales tipo Dropdown)
+  // Estados para controlar los desplegables
   const [modalVisible, setModalVisible] = useState<
     "tipoFilamento" | "marcaFilamento" | "marcaImpresora" | "modeloImpresora" | null
   >(null);
+
+  // Filtrar impresoras que están a 24 horas o menos de vencer su vida útil (o que ya la superaron)
+  const impresorasConAlerta = impresorasLista.filter((imp) => {
+    const horasParaMantenimiento = imp.vidaUtilHoras - imp.horasUsoTotal;
+    return horasParaMantenimiento <= 24;
+  });
 
   const renderDropdownModal = (
     titulo: string,
@@ -93,7 +113,7 @@ export function InventarioHeader({
       <Pressable style={styles.modalOverlay} onPress={() => setModalVisible(null)}>
         <View style={[styles.dropdownMenu, { backgroundColor: theme.bgSecondary }]}>
           <Text style={[styles.dropdownTitle, { color: theme.textPrimary }]}>{titulo}</Text>
-          
+
           <TouchableOpacity
             style={[
               styles.dropdownOption,
@@ -117,32 +137,34 @@ export function InventarioHeader({
             )}
           </TouchableOpacity>
 
-          {opciones.map((opcion) => {
-            const activo = valorSeleccionado === opcion;
-            return (
-              <TouchableOpacity
-                key={opcion}
-                style={[
-                  styles.dropdownOption,
-                  activo && { backgroundColor: theme.primary + "15" },
-                ]}
-                onPress={() => {
-                  onSelect(activo ? "" : opcion);
-                  setModalVisible(null);
-                }}
-              >
-                <Text
+          <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
+            {opciones.map((opcion) => {
+              const activo = valorSeleccionado === opcion;
+              return (
+                <TouchableOpacity
+                  key={opcion}
                   style={[
-                    styles.dropdownOptionText,
-                    { color: activo ? theme.primary : theme.textPrimary },
+                    styles.dropdownOption,
+                    activo && { backgroundColor: theme.primary + "15" },
                   ]}
+                  onPress={() => {
+                    onSelect(activo ? "" : opcion);
+                    setModalVisible(null);
+                  }}
                 >
-                  {opcion}
-                </Text>
-                {activo && <Ionicons name="checkmark" size={16} color={theme.primary} />}
-              </TouchableOpacity>
-            );
-          })}
+                  <Text
+                    style={[
+                      styles.dropdownOptionText,
+                      { color: activo ? theme.primary : theme.textPrimary },
+                    ]}
+                  >
+                    {opcion}
+                  </Text>
+                  {activo && <Ionicons name="checkmark" size={16} color={theme.primary} />}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
         </View>
       </Pressable>
     </Modal>
@@ -211,202 +233,277 @@ export function InventarioHeader({
         />
       </View>
 
-      {/* 3. CONTROLES Y FILTROS SEGÚN PESTAÑA */}
+      {/* 3. CONTROLES: BUSCADOR + FILTROS + BOTÓN AGREGAR */}
       <View style={styles.seccionControles}>
-        {/* BUSCADOR EN TIEMPO REAL */}
-        <View
-          style={[
-            styles.inputBusquedaContainer,
-            { backgroundColor: theme.bgSecondary, borderColor: theme.border + "40" },
-          ]}
-        >
-          <Ionicons name="search-outline" size={18} color={theme.textSecondary} />
-          <TextInput
-            style={[styles.inputBusqueda, { color: theme.textPrimary }]}
-            placeholder={
-              tab === "filamentos"
-                ? "Buscar por color, marca, tipo..."
-                : tab === "impresoras"
-                ? "Buscar impresora por marca, modelo..."
-                : "Buscar piezas..."
-            }
-            placeholderTextColor={theme.textSecondary + "80"}
-            value={busqueda}
-            onChangeText={onCambiarBusqueda}
-          />
-          {busqueda.length > 0 && (
-            <TouchableOpacity onPress={() => onCambiarBusqueda("")}>
-              <Ionicons name="close-circle" size={16} color={theme.textSecondary} />
-            </TouchableOpacity>
+        <View style={styles.filaBusquedaYFiltros}>
+          {/* BUSCADOR */}
+          <View
+            style={[
+              styles.inputBusquedaContainer,
+              { backgroundColor: theme.bgSecondary, borderColor: theme.border + "40" },
+            ]}
+          >
+            <Ionicons name="search-outline" size={18} color={theme.textSecondary} />
+            <TextInput
+              style={[styles.inputBusqueda, { color: theme.textPrimary }]}
+              placeholder={
+                tab === "filamentos"
+                  ? "Buscar por color, marca..."
+                  : tab === "impresoras"
+                  ? "Buscar por marca, modelo..."
+                  : "Buscar piezas..."
+              }
+              placeholderTextColor={theme.textSecondary + "80"}
+              value={busqueda}
+              onChangeText={onCambiarBusqueda}
+            />
+            {busqueda.length > 0 && (
+              <TouchableOpacity onPress={() => onCambiarBusqueda("")}>
+                <Ionicons name="close-circle" size={16} color={theme.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* FILTROS SEGÚN PESTAÑA */}
+          {tab === "filamentos" && (
+            <View style={styles.contenedorIconosFiltro}>
+              {/* Filtro Material */}
+              <TouchableOpacity
+                style={[
+                  styles.btnIconoFiltro,
+                  { backgroundColor: theme.bgSecondary, borderColor: theme.border + "40" },
+                  filtroTipo !== "" && {
+                    borderColor: theme.primary,
+                    backgroundColor: theme.primary + "15",
+                  },
+                ]}
+                onPress={() => setModalVisible("tipoFilamento")}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="layers-outline"
+                  size={18}
+                  color={filtroTipo ? theme.primary : theme.textSecondary}
+                />
+                {filtroTipo !== "" && (
+                  <View style={[styles.dotIndicador, { backgroundColor: theme.primary }]} />
+                )}
+              </TouchableOpacity>
+
+              {/* Filtro Marca */}
+              <TouchableOpacity
+                style={[
+                  styles.btnIconoFiltro,
+                  { backgroundColor: theme.bgSecondary, borderColor: theme.border + "40" },
+                  filtroMarcaFilamento !== "" && {
+                    borderColor: theme.primary,
+                    backgroundColor: theme.primary + "15",
+                  },
+                ]}
+                onPress={() => setModalVisible("marcaFilamento")}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="pricetag-outline"
+                  size={18}
+                  color={filtroMarcaFilamento ? theme.primary : theme.textSecondary}
+                />
+                {filtroMarcaFilamento !== "" && (
+                  <View style={[styles.dotIndicador, { backgroundColor: theme.primary }]} />
+                )}
+              </TouchableOpacity>
+
+              {/* Botón Agregar Filamento Compacto */}
+              {onAgregarFilamento && (
+                <TouchableOpacity
+                  style={[styles.btnAgregarIcono, { backgroundColor: theme.primary }]}
+                  activeOpacity={0.8}
+                  onPress={onAgregarFilamento}
+                >
+                  <Ionicons name="add" size={14} color="#FFFFFF" style={{ marginRight: -2 }} />
+                  <Ionicons name="disc-outline" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          {tab === "impresoras" && (
+            <View style={styles.contenedorIconosFiltro}>
+              {/* Filtro Marca Impresora */}
+              <TouchableOpacity
+                style={[
+                  styles.btnIconoFiltro,
+                  { backgroundColor: theme.bgSecondary, borderColor: theme.border + "40" },
+                  filtroMarcaImpresora !== "" && {
+                    borderColor: theme.primary,
+                    backgroundColor: theme.primary + "15",
+                  },
+                ]}
+                onPress={() => setModalVisible("marcaImpresora")}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="business-outline"
+                  size={18}
+                  color={filtroMarcaImpresora ? theme.primary : theme.textSecondary}
+                />
+                {filtroMarcaImpresora !== "" && (
+                  <View style={[styles.dotIndicador, { backgroundColor: theme.primary }]} />
+                )}
+              </TouchableOpacity>
+
+              {/* Filtro Modelo Impresora */}
+              <TouchableOpacity
+                style={[
+                  styles.btnIconoFiltro,
+                  { backgroundColor: theme.bgSecondary, borderColor: theme.border + "40" },
+                  filtroModeloImpresora !== "" && {
+                    borderColor: theme.primary,
+                    backgroundColor: theme.primary + "15",
+                  },
+                ]}
+                onPress={() => setModalVisible("modeloImpresora")}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="hardware-chip-outline"
+                  size={18}
+                  color={filtroModeloImpresora ? theme.primary : theme.textSecondary}
+                />
+                {filtroModeloImpresora !== "" && (
+                  <View style={[styles.dotIndicador, { backgroundColor: theme.primary }]} />
+                )}
+              </TouchableOpacity>
+
+              {/* Botón Agregar Impresora Compacto */}
+              {onAgregarImpresora && (
+                <TouchableOpacity
+                  style={[styles.btnAgregarIcono, { backgroundColor: theme.primary }]}
+                  activeOpacity={0.8}
+                  onPress={onAgregarImpresora}
+                >
+                  <Ionicons name="add" size={14} color="#FFFFFF" style={{ marginRight: -2 }} />
+                  <Ionicons name="print-outline" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              )}
+            </View>
           )}
         </View>
-
-        {/* FILTROS DESPLEGABLES */}
-        {tab === "filamentos" && (
-          <View style={styles.rowFiltros}>
-            <TouchableOpacity
-              style={[
-                styles.btnDropdown,
-                { backgroundColor: theme.bgSecondary, borderColor: theme.border + "40" },
-                filtroTipo !== "" && { borderColor: theme.primary },
-              ]}
-              onPress={() => setModalVisible("tipoFilamento")}
-            >
-              <Text
-                style={[
-                  styles.btnDropdownTexto,
-                  { color: filtroTipo ? theme.primary : theme.textSecondary },
-                ]}
-                numberOfLines={1}
-              >
-                {filtroTipo ? `Material: ${filtroTipo}` : "Material"}
-              </Text>
-              <Ionicons
-                name="chevron-down"
-                size={14}
-                color={filtroTipo ? theme.primary : theme.textSecondary}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.btnDropdown,
-                { backgroundColor: theme.bgSecondary, borderColor: theme.border + "40" },
-                filtroMarcaFilamento !== "" && { borderColor: theme.primary },
-              ]}
-              onPress={() => setModalVisible("marcaFilamento")}
-            >
-              <Text
-                style={[
-                  styles.btnDropdownTexto,
-                  { color: filtroMarcaFilamento ? theme.primary : theme.textSecondary },
-                ]}
-                numberOfLines={1}
-              >
-                {filtroMarcaFilamento ? `Marca: ${filtroMarcaFilamento}` : "Marca"}
-              </Text>
-              <Ionicons
-                name="chevron-down"
-                size={14}
-                color={filtroMarcaFilamento ? theme.primary : theme.textSecondary}
-              />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {tab === "impresoras" && (
-          <View style={styles.rowFiltros}>
-            <TouchableOpacity
-              style={[
-                styles.btnDropdown,
-                { backgroundColor: theme.bgSecondary, borderColor: theme.border + "40" },
-                filtroMarcaImpresora !== "" && { borderColor: theme.primary },
-              ]}
-              onPress={() => setModalVisible("marcaImpresora")}
-            >
-              <Text
-                style={[
-                  styles.btnDropdownTexto,
-                  { color: filtroMarcaImpresora ? theme.primary : theme.textSecondary },
-                ]}
-                numberOfLines={1}
-              >
-                {filtroMarcaImpresora ? `Marca: ${filtroMarcaImpresora}` : "Marca"}
-              </Text>
-              <Ionicons
-                name="chevron-down"
-                size={14}
-                color={filtroMarcaImpresora ? theme.primary : theme.textSecondary}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.btnDropdown,
-                { backgroundColor: theme.bgSecondary, borderColor: theme.border + "40" },
-                filtroModeloImpresora !== "" && { borderColor: theme.primary },
-              ]}
-              onPress={() => setModalVisible("modeloImpresora")}
-            >
-              <Text
-                style={[
-                  styles.btnDropdownTexto,
-                  { color: filtroModeloImpresora ? theme.primary : theme.textSecondary },
-                ]}
-                numberOfLines={1}
-              >
-                {filtroModeloImpresora ? `Modelo: ${filtroModeloImpresora}` : "Modelo"}
-              </Text>
-              <Ionicons
-                name="chevron-down"
-                size={14}
-                color={filtroModeloImpresora ? theme.primary : theme.textSecondary}
-              />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* BOTÓN DE ACCIÓN (NUEVO) ALINEADO A LA DERECHA */}
-        {tab === "filamentos" && onAgregarFilamento && (
-          <View style={styles.rowAccionDerecha}>
-            <TouchableOpacity
-              style={[styles.btnAgregarCompacto, { backgroundColor: theme.primary }]}
-              activeOpacity={0.8}
-              onPress={onAgregarFilamento}
-            >
-              <Ionicons name="add" size={18} color="#FFFFFF" />
-              <Text style={styles.btnAgregarTexto}>Nuevo Filamento</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {tab === "impresoras" && onAgregarImpresora && (
-          <View style={styles.rowAccionDerecha}>
-            <TouchableOpacity
-              style={[styles.btnAgregarCompacto, { backgroundColor: theme.primary }]}
-              activeOpacity={0.8}
-              onPress={onAgregarImpresora}
-            >
-              <Ionicons name="add" size={18} color="#FFFFFF" />
-              <Text style={styles.btnAgregarTexto}>Nueva Impresora</Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
 
-      {/* BANNERS DE ALERTA */}
+      {/* 4. CARDS DE ALERTAS CON ESTRUCTURA EN DOS COLUMNAS (2-COLUMNS GRID LAYOUT) */}
+
+      {/* BANNERS / CARDS DE FILAMENTOS CON BAJO STOCK */}
       {tab === "filamentos" && filamentosBajoStock.length > 0 && (
-        <View
-          style={[
-            styles.alertaBanner,
-            { backgroundColor: COLOR_DANGER + "14", borderColor: COLOR_DANGER + "30" },
-          ]}
-        >
-          <Ionicons name="alert-circle" size={18} color={COLOR_DANGER} />
-          <Text style={[styles.alertaTexto, { color: COLOR_DANGER }]}>
-            {filamentosBajoStock.length === 1
-              ? "1 rollo está por debajo del umbral de stock: "
-              : `${filamentosBajoStock.length} rollos están por debajo del umbral de stock: `}
-            <Text style={{ fontWeight: "700" }}>
-              {filamentosBajoStock.map((f) => `${f.tipo} ${f.color}`).join(", ")}
-            </Text>
-          </Text>
+        <View style={styles.alertaSeccionContainer}>
+          
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.cardsScrollHorizontal}
+          >
+            {filamentosBajoStock.map((f) => (
+              <TouchableOpacity
+                key={f.id}
+                style={[
+                  styles.cardAlerta2Col,
+                  {
+                    backgroundColor: COLOR_DANGER + "0D",
+                    borderColor: COLOR_DANGER + "35",
+                  },
+                ]}
+                activeOpacity={0.75}
+                onPress={() => onSelectFilamento && onSelectFilamento(f)}
+              >
+                {/* COLUMNA 1: Ícono Centrado Verticalmente a la Izquierda */}
+                <View style={styles.columnaIcono}>
+                  <View style={[styles.circuloIcono2Col, { backgroundColor: COLOR_DANGER + "20" }]}>
+                    <Ionicons name="alert-circle" size={22} color={COLOR_DANGER} />
+                  </View>
+                </View>
+
+                {/* COLUMNA 2: Información Técnica Alineada a la Izquierda */}
+                <View style={styles.columnaDatos}>
+                  {/* Fila Material + Color */}
+                  <Text
+                    style={[styles.cardAlertaTitulo, { color: theme.textPrimary }]}
+                    numberOfLines={1}
+                  >
+                    {f.tipo} <Text style={{ color: theme.textSecondary, fontWeight: "500" }}>· {f.color}</Text>
+                  </Text>
+
+                  {/* Fila Gramos Actuales / Gramos Umbral */}
+                  <Text style={[styles.cardAlertaMedida, { color: COLOR_DANGER }]}>
+                    {f.stockGramos}g{" "}
+                    <Text style={[styles.cardAlertaTotal, { color: theme.textSecondary }]}>
+                      / {f.umbralBajoStock}g
+                    </Text>
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
       )}
 
-      {tab === "impresoras" && impresorasRequierenMantenimiento > 0 && (
-        <View
-          style={[
-            styles.alertaBanner,
-            { backgroundColor: COLOR_ALERTA + "18", borderColor: COLOR_ALERTA + "40" },
-          ]}
-        >
-          <Ionicons name="build-outline" size={18} color={COLOR_ALERTA} />
-          <Text style={[styles.alertaTexto, { color: theme.textPrimary }]}>
-            {impresorasRequierenMantenimiento === 1
-              ? "1 impresora ha alcanzado un nivel elevado de horas de uso y requiere mantenimiento preventivo."
-              : `${impresorasRequierenMantenimiento} impresoras están próximas al límite de horas para mantenimiento.`}
-          </Text>
+      {/* BANNERS / CARDS DE MANTENIMIENTO DE IMPRESORAS */}
+      {tab === "impresoras" && impresorasConAlerta.length > 0 && (
+        <View style={styles.alertaSeccionContainer}>
+          <View style={styles.alertaHeader}>
+            <Ionicons name="build-outline" size={16} color={COLOR_ALERTA} />
+            <Text style={[styles.alertaTituloHeader, { color: COLOR_ALERTA }]}>
+              Impresoras Próximas a Mantenimiento (≤ 24h Restantes)
+            </Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.cardsScrollHorizontal}
+          >
+            {impresorasConAlerta.map((imp) => (
+              <TouchableOpacity
+                key={imp.id}
+                style={[
+                  styles.cardAlerta2Col,
+                  {
+                    backgroundColor: COLOR_ALERTA + "12",
+                    borderColor: COLOR_ALERTA + "40",
+                  },
+                ]}
+                activeOpacity={0.75}
+                onPress={() => onSelectImpresora && onSelectImpresora(imp)}
+              >
+                {/* COLUMNA 1: Ícono Centrado Verticalmente a la Izquierda */}
+                <View style={styles.columnaIcono}>
+                  <View style={[styles.circuloIcono2Col, { backgroundColor: COLOR_ALERTA + "25" }]}>
+                    <Ionicons name="time-outline" size={22} color={COLOR_ALERTA} />
+                  </View>
+                </View>
+
+                {/* COLUMNA 2: Información Técnica Alineada a la Izquierda */}
+                <View style={styles.columnaDatos}>
+                  {/* Fila Marca + Modelo */}
+                  <Text
+                    style={[styles.cardAlertaTitulo, { color: theme.textPrimary }]}
+                    numberOfLines={1}
+                  >
+                    {imp.marca}{" "}
+                    <Text style={{ color: theme.textSecondary, fontWeight: "500" }}>
+                      · {imp.modelo}
+                    </Text>
+                  </Text>
+
+                  {/* Fila Horas Uso / Horas Vida Útil */}
+                  <Text style={[styles.cardAlertaMedida, { color: theme.textPrimary }]}>
+                    {formatearHorasYMinutos(imp.horasUsoTotal)}{" "}
+                    <Text style={[styles.cardAlertaTotal, { color: theme.textSecondary }]}>
+                      / {imp.vidaUtilHoras} hrs
+                    </Text>
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
       )}
 
@@ -459,9 +556,14 @@ const styles = StyleSheet.create({
   seccionControles: {
     marginHorizontal: 16,
     marginBottom: 10,
-    gap: 8,
+  },
+  filaBusquedaYFiltros: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   inputBusquedaContainer: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -475,58 +577,100 @@ const styles = StyleSheet.create({
     fontSize: 13,
     paddingVertical: 0,
   },
-  rowFiltros: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  btnDropdown: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    height: 38,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  btnDropdownTexto: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  rowAccionDerecha: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: 2,
-  },
-  btnAgregarCompacto: {
+  contenedorIconosFiltro: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 14,
-    height: 38,
-    borderRadius: 8,
+  },
+  btnIconoFiltro: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+  },
+  dotIndicador: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  btnAgregarIcono: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
     elevation: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.15,
     shadowRadius: 2,
   },
-  btnAgregarTexto: {
-    color: "#FFFFFF",
-    fontSize: 12.5,
-    fontWeight: "700",
+
+  // BANNERS Y CARDS DE ALERTA PROFESIONALES (Estructura de 2 Columnas)
+  alertaSeccionContainer: {
+    marginBottom: 12,
   },
-  alertaBanner: {
+  alertaHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginHorizontal: 16,
-    marginBottom: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    padding: 10,
+    gap: 6,
+    paddingHorizontal: 16,
+    marginBottom: 8,
   },
-  alertaTexto: { fontSize: 11.5, flex: 1, fontWeight: "500" },
+  alertaTituloHeader: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  cardsScrollHorizontal: {
+    paddingHorizontal: 16,
+    gap: 10,
+  },
+  cardAlerta2Col: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    width: 210,
+    gap: 12,
+  },
+  columnaIcono: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  circuloIcono2Col: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  columnaDatos: {
+    flex: 1,
+    justifyContent: "center",
+    gap: 2,
+  },
+  cardAlertaTitulo: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  cardAlertaMedida: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  cardAlertaTotal: {
+    fontWeight: "500",
+  },
 
   // Estilos del Modal Dropdown
   modalOverlay: {

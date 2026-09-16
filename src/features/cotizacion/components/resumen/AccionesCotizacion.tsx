@@ -5,8 +5,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/hooks/useTheme";
 
 interface AccionesCotizacionProps {
-  onFichaInterna: () => void;
-  generandoFicha: boolean;
   onEnviarWhatsapp: () => void;
   generandoVoucher: boolean;
   puedeEnviarVoucher: boolean;
@@ -14,8 +12,7 @@ interface AccionesCotizacionProps {
 }
 
 export function AccionesCotizacion({
-  onFichaInterna,
-  generandoFicha,
+  
   onEnviarWhatsapp,
   generandoVoucher,
   puedeEnviarVoucher,
@@ -26,17 +23,6 @@ export function AccionesCotizacion({
   return (
     <>
       <View style={styles.row}>
-        <Pressable
-          style={[styles.secondary, { borderColor: theme.border, opacity: generandoFicha ? 0.7 : 1 }]}
-          onPress={onFichaInterna}
-          disabled={generandoFicha}
-        >
-          {generandoFicha ? (
-            <ActivityIndicator color={theme.textPrimary} size="small" />
-          ) : (
-            <Text style={[styles.secondaryText, { color: theme.textPrimary }]}>Ficha interna</Text>
-          )}
-        </Pressable>
 
         <Pressable
           style={[styles.whatsapp, { opacity: generandoVoucher || !puedeEnviarVoucher ? 0.6 : 1 }]}

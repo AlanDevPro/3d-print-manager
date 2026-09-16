@@ -1,16 +1,11 @@
 export type SubPestanaInventario = "filamentos" | "piezas" | "impresoras";
 
-export type EstadoImpresora =
-  | "disponible"
-  | "imprimiendo"
-  | "mantenimiento"
-  | "apagada";
+export type EstadoImpresora = "imprimiendo" | "inactiva" | "mantenimiento";
 
-// UI model — mapea 1:1 con la fila de public.filamentos
 export type Filamento = {
   id: string;
   marca: string;
-  tipo: string; // filamentos.material
+  tipo: string;
   color: string;
   colorHex: string;
   capacidadRolloGramos: number;
@@ -25,9 +20,9 @@ export type Filamento = {
 
 export type NuevoFilamento = Omit<Filamento, "id" | "activo" | "imagenUrl"> & {
   imagenFile?: File | string | null;
+  imagenUrl?: File | string | null;
 };
 
-// UI model — mapea 1:1 con la fila de public.impresoras
 export type Impresora = {
   id: string;
   modelo: string;
@@ -51,10 +46,10 @@ export type NuevaImpresora = {
   vidaUtilHoras: number;
   consumoWatts: number;
   costoMantenimientoHora: number;
+  imagenUrl?: File | string | null;
   imagenFile?: File | string | null;
 };
 
-// UI model — Piezas en stock
 export type PiezaStock = {
   id: string;
   nombre: string;

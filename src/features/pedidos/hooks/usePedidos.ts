@@ -1,5 +1,8 @@
+//src/features/pedidos/hooks/usePedidos.ts
 import { useEmpresaActual } from "@/context/EmpresaContext";
+import { supabase } from "@/services/supabase/client";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AppState, AppStateStatus } from "react-native";
 import { estadoConfig, ESTADOS } from "../constants";
 import { mapPedidosFromDb } from "../mappers/pedidosMapper";
 import {
@@ -40,7 +43,25 @@ export function usePedidos() {
     if (!empresaId) return;
 
     const unsubscribe = suscribirCambiosPedidos(empresaId, cargarPedidos);
-    return unsubscribe;
+
+    // Al volver a primer plano, el socket de Realtime pudo haberse caído
+    // silenciosamente en background. Forzamos reconexión + refetch.
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      if (nextState === "active") {
+        supabase.realtime.connect();
+        cargarPedidos();
+      }
+    };
+
+    const appStateSub = AppState.addEventListener(
+      "change",
+      handleAppStateChange,
+    );
+
+    return () => {
+      unsubscribe();
+      appStateSub.remove();
+    };
   }, [empresaId, cargarPedidos]);
 
   const actualizarPedidoLocal = useCallback(
@@ -92,7 +113,9 @@ export function usePedidos() {
 
   const pedidosFiltrados = useMemo(() => {
     let lista =
-      filtro === "todos" ? pedidos : pedidos.filter((p) => p.estado === filtro);
+      filtro === "todos"
+        ? pedidos
+        : pedidos.filter((p) => p.estado === filtro);
     if (busqueda.trim()) {
       const q = busqueda.trim().toLowerCase();
       lista = lista.filter(

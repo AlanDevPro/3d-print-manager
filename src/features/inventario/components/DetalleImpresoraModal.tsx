@@ -1,7 +1,7 @@
-// src/features/inventario/components/DetalleImpresoraModal.tsx
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
+import { useState } from "react";
 import {
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -21,17 +21,30 @@ type Props = {
   onClose: () => void;
 };
 
+const DEFAULT_PRINTER_IMAGE =
+  "https://images.unsplash.com/photo-1612815154858-60aa4c59eaa6?q=80&w=600&auto=format&fit=crop";
+
 export function DetalleImpresoraModal({ impresora, theme, onClose }: Props) {
-  const vidaUtilPct = impresora
-    ? Math.min(
-        100,
-        Math.round((impresora.horasUsoTotal / impresora.vidaUtilHoras) * 100),
-      )
-    : 0;
-  const horasRestantes = impresora
-    ? Math.max(0, impresora.vidaUtilHoras - impresora.horasUsoTotal)
-    : 0;
-  const cfg = impresora ? ESTADO_IMPRESORA_CFG[impresora.estado] : null;
+  const [imageError, setImageError] = useState(false);
+
+  if (!impresora) return null;
+
+  const vidaUtilPct = Math.min(
+    100,
+    Math.round((impresora.horasUsoTotal / impresora.vidaUtilHoras) * 100),
+  );
+
+  const horasRestantes = Math.max(
+    0,
+    impresora.vidaUtilHoras - impresora.horasUsoTotal,
+  );
+
+  const cfg = ESTADO_IMPRESORA_CFG[impresora.estado];
+
+  const imageUri =
+    !imageError && impresora.imagenUrl
+      ? impresora.imagenUrl
+      : DEFAULT_PRINTER_IMAGE;
 
   return (
     <Modal
@@ -44,14 +57,53 @@ export function DetalleImpresoraModal({ impresora, theme, onClose }: Props) {
         <Pressable
           style={[
             sharedStyles.modalSheet,
+            styles.modalSheetSinPadding,
             { backgroundColor: theme.bgPrimary },
           ]}
           onPress={(e) => e.stopPropagation()}
         >
-          {impresora && cfg && (
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={sharedStyles.modalHandle} />
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {/* Header Hero con Imagen del Filamento/Impresora */}
+            <View style={styles.heroContainer}>
+              <Image
+                source={{ uri: imageUri }}
+                style={styles.heroImage}
+                resizeMode="cover"
+                onError={() => setImageError(true)}
+              />
 
+              {/* Sombra/Oscurecimiento para mejorar contraste */}
+              <View style={styles.heroOverlay} />
+
+              {/* Tirador del modal flotante */}
+              <View style={[sharedStyles.modalHandle, styles.heroHandle]} />
+
+              {/* Botón flotante para cerrar rápidamente */}
+              <TouchableOpacity
+                style={styles.heroCerrarBtn}
+                onPress={onClose}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="close" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+
+              {/* Badges Flotantes Informativos */}
+              <View style={styles.heroBadgesContainer}>
+                <View
+                  style={[
+                    styles.heroEstadoBadge,
+                    { backgroundColor: cfg.color },
+                  ]}
+                >
+                  <Ionicons name={cfg.icono} size={12} color="#FFFFFF" />
+                  <Text style={styles.heroEstadoBadgeTexto}>{cfg.label}</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Contenido Principal */}
+            <View style={styles.contenido}>
+              {/* Título y Subtítulo */}
               <View style={sharedStyles.modalHeaderRow}>
                 <View
                   style={[
@@ -59,7 +111,6 @@ export function DetalleImpresoraModal({ impresora, theme, onClose }: Props) {
                     { backgroundColor: cfg.color + "1A" },
                   ]}
                 >
-                  {/* Icono fijo de impresora en lugar de cfg.icono */}
                   <Ionicons name="print-outline" size={24} color={cfg.color} />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -72,7 +123,11 @@ export function DetalleImpresoraModal({ impresora, theme, onClose }: Props) {
                     {impresora.modelo}
                   </Text>
                   <View style={styles.subtituloRow}>
-                    <Ionicons name="hardware-chip-outline" size={12} color={theme.textSecondary} />
+                    <Ionicons
+                      name="hardware-chip-outline"
+                      size={12}
+                      color={theme.textSecondary}
+                    />
                     <Text
                       style={[
                         sharedStyles.modalSub,
@@ -85,27 +140,7 @@ export function DetalleImpresoraModal({ impresora, theme, onClose }: Props) {
                 </View>
               </View>
 
-              <View
-                style={[
-                  sharedStyles.estadoBadge,
-                  {
-                    backgroundColor: cfg.color + "1A",
-                    alignSelf: "flex-start",
-                    marginBottom: 14,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 4,
-                  },
-                ]}
-              >
-                <Ionicons name={cfg.icono} size={12} color={cfg.color} />
-                <Text
-                  style={[sharedStyles.estadoBadgeTexto, { color: cfg.color }]}
-                >
-                  {cfg.label}
-                </Text>
-              </View>
-
+              {/* Grid de Métricas */}
               <View style={sharedStyles.modalGrid}>
                 <DetalleItem
                   theme={theme}
@@ -146,8 +181,13 @@ export function DetalleImpresoraModal({ impresora, theme, onClose }: Props) {
                 />
               </View>
 
+              {/* Barra de Desgaste Acumulado */}
               <View style={styles.desgasteHeader}>
-                <Ionicons name="analytics-outline" size={14} color={theme.textSecondary} />
+                <Ionicons
+                  name="analytics-outline"
+                  size={14}
+                  color={theme.textSecondary}
+                />
                 <Text
                   style={[
                     sharedStyles.checklistTitulo,
@@ -183,6 +223,7 @@ export function DetalleImpresoraModal({ impresora, theme, onClose }: Props) {
                 {vidaUtilPct}% de su vida útil consumida
               </Text>
 
+              {/* Botón Cerrar Inferior */}
               <TouchableOpacity
                 style={sharedStyles.cerrarBtn}
                 onPress={onClose}
@@ -196,8 +237,8 @@ export function DetalleImpresoraModal({ impresora, theme, onClose }: Props) {
                   Cerrar
                 </Text>
               </TouchableOpacity>
-            </ScrollView>
-          )}
+            </View>
+          </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>
@@ -205,6 +246,70 @@ export function DetalleImpresoraModal({ impresora, theme, onClose }: Props) {
 }
 
 const styles = StyleSheet.create({
+  modalSheetSinPadding: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    overflow: "hidden",
+  },
+  heroContainer: {
+    width: "100%",
+    height: 220,
+    position: "relative",
+    backgroundColor: "#0D0D14",
+  },
+  heroImage: {
+    width: "100%",
+    height: "100%",
+  },
+  heroOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  heroHandle: {
+    position: "absolute",
+    top: 8,
+    alignSelf: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.6)",
+    zIndex: 10,
+  },
+  heroCerrarBtn: {
+    position: "absolute",
+    top: 14,
+    left: 16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+  },
+  heroBadgesContainer: {
+    position: "absolute",
+    bottom: 14,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  heroEstadoBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    elevation: 3,
+  },
+  heroEstadoBadgeTexto: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  contenido: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
   impresoraIcono: {
     width: 44,
     height: 44,
@@ -223,6 +328,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     marginBottom: 8,
-    marginTop: 6,
+    marginTop: 12,
   },
 });

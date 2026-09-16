@@ -4,6 +4,11 @@ import * as Crypto from "expo-crypto";
 import { File } from "expo-file-system";
 import type { ResultadoCotizacion } from "../types";
 
+interface PiezaFotoInput {
+  id: string;
+  fotoUri: string | null;
+}
+
 interface GuardarCotizacionParams {
   userId: string;
   empresaId?: string;
@@ -17,37 +22,29 @@ interface GuardarCotizacionParams {
   tiempoPostprocesadoMinutos: number;
   costoDisenoTotal?: number;
   resultado: ResultadoCotizacion;
-  imagenUri?: string | null;
+  piezasFotos: PiezaFotoInput[];
 }
 
 /**
- * Subida profesional de imágenes desde React Native / Expo Go a Supabase Storage
- * Utilizando la API moderna de Expo FileSystem (Clase File)
+ * Sube la foto de UNA pieza al bucket "empresa-assets", bajo
+ * cotizacion-items/{userId}/{timestamp}_{uuid}.{ext}
  */
-async function subirImagenReferencia(
+async function subirFotoPieza(
   userId: string,
-  imagenUri: string
+  imagenUri: string,
 ): Promise<string | null> {
   try {
-    // 1. Obtener extensión y MIME type adecuado
     const cleanUri = imagenUri.split("?")[0];
     const fileExtension = cleanUri.split(".").pop()?.toLowerCase() || "jpg";
     const mimeType = fileExtension === "png" ? "image/png" : "image/jpeg";
 
-    // Generar ruta única en el Storage
     const fileName = `${userId}/${Date.now()}_${Crypto.randomUUID()}.${fileExtension}`;
-    const filePath = `cotizaciones/${fileName}`;
+    const filePath = `cotizacion-items/${fileName}`;
 
-    // 2. Instanciar el archivo local usando la API moderna File
     const file = new File(imagenUri);
-
-    // 3. Obtener el contenido Base64 de la instancia
     const base64Data = await file.base64();
-
-    // 4. Convertir Base64 a ArrayBuffer para compatibilidad total con Supabase JS
     const arrayBuffer = decode(base64Data);
 
-    // 5. Subir a Supabase Storage
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from("empresa-assets")
       .upload(filePath, arrayBuffer, {
@@ -56,18 +53,17 @@ async function subirImagenReferencia(
       });
 
     if (uploadError) {
-      console.error("❌ Error de Supabase Storage:", uploadError);
+      console.error("❌ Error subiendo foto de pieza a Storage:", uploadError);
       throw new Error(`Error en Storage: ${uploadError.message}`);
     }
 
-    // 6. Obtener la URL pública del archivo subido
     const { data: publicUrlData } = supabase.storage
       .from("empresa-assets")
       .getPublicUrl(uploadData.path);
 
     return publicUrlData.publicUrl;
   } catch (error) {
-    console.error("❌ Error detallado en subirImagenReferencia:", error);
+    console.error("❌ Error detallado en subirFotoPieza:", error);
     return null;
   }
 }
@@ -85,17 +81,11 @@ export async function guardarCotizacion({
   tiempoPostprocesadoMinutos,
   costoDisenoTotal = 0,
   resultado,
-  imagenUri,
+  piezasFotos,
 }: GuardarCotizacionParams) {
   const tokenPublico = Crypto.randomUUID();
 
-  // Subir imagen a Storage si fue proporcionada una URI válida
-  let imagenReferenciaUrl: string | null = null;
-  if (imagenUri) {
-    imagenReferenciaUrl = await subirImagenReferencia(userId, imagenUri);
-  }
-
-  // 1. Guardar la cabecera de la cotización
+  // 1. Cabecera de la cotización
   const { data: cotizacion, error: errorCotizacion } = await supabase
     .from("cotizaciones")
     .insert({
@@ -116,31 +106,54 @@ export async function guardarCotizacion({
       estado: "pendiente",
       notas,
       token_publico: tokenPublico,
-      imagen_referencia_url: imagenReferenciaUrl,
     })
     .select()
     .single();
 
   if (errorCotizacion) throw errorCotizacion;
 
-  // 2. Insertar renglones de la cotización
-  const itemsAInsertar = resultado.piezas.map((pieza) => ({
-    cotizacion_id: cotizacion.id,
-    impresora_id: impresoraId,
-    filamento_id: filamentoId,
-    nombre_pieza: pieza.nombre_pieza,
-    cantidad: pieza.cantidad,
-    peso_gramos: pieza.peso_gramos,
-    tiempo_impresion_horas: pieza.tiempo_impresion_horas,
-    tiempo_preparacion_minutos: tiempoPreparacionMinutos,
-    tiempo_postprocesado_minutos: tiempoPostprocesadoMinutos,
-    costo_material: pieza.costo_material_unit,
-    costo_energia: pieza.costo_energia_unit,
-    costo_amortizacion: pieza.costo_amortizacion_unit,
-    costo_mantenimiento: 0,
-    costo_mano_obra: pieza.costo_mano_obra_unit,
-    costo_subtotal_item: pieza.subtotal_directo_pieza,
-  }));
+  // 2. Subir la foto de CADA pieza en paralelo, mapeada por id
+  const fotoPorPieza = new Map<string, string | null>();
+  await Promise.all(
+    piezasFotos.map(async ({ id, fotoUri }) => {
+      if (!fotoUri) {
+        fotoPorPieza.set(id, null);
+        return;
+      }
+      const url = await subirFotoPieza(userId, fotoUri);
+      fotoPorPieza.set(id, url);
+    }),
+  );
+
+  // 3. Insertar renglones — convirtiendo correctamente horas y minutos a formato decimal
+  const itemsAInsertar = resultado.piezas.map((pieza) => {
+    // 💡 Conversión profesional: Sumamos horas enteras + minutos convertidos a fracción de hora
+    const horasDecimales =
+      (Number(pieza.tiempo_impresion_horas) || 0) +
+      (Number(pieza.tiempo_impresion_minutos) || 0) / 60;
+
+    return {
+      cotizacion_id: cotizacion.id,
+      impresora_id: impresoraId,
+      filamento_id: filamentoId,
+      nombre_pieza: pieza.nombre_pieza,
+      cantidad: pieza.cantidad,
+      peso_gramos: pieza.peso_gramos,
+
+      // ✅ Enviamos el total combinado en formato decimal (ej: 0.25 para 15 min)
+      tiempo_impresion_horas: horasDecimales,
+
+      tiempo_preparacion_minutos: tiempoPreparacionMinutos,
+      tiempo_postprocesado_minutos: tiempoPostprocesadoMinutos,
+      costo_material: pieza.costo_material_unit,
+      costo_energia: pieza.costo_energia_unit,
+      costo_amortizacion: pieza.costo_amortizacion_unit,
+      costo_mantenimiento: 0,
+      costo_mano_obra: pieza.costo_mano_obra_unit,
+      costo_subtotal_item: pieza.subtotal_directo_pieza,
+      imagen_url: fotoPorPieza.get(pieza.id) ?? null,
+    };
+  });
 
   const { error: errorItems } = await supabase
     .from("cotizacion_items")

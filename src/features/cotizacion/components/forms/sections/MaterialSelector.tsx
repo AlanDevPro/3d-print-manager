@@ -1,84 +1,121 @@
 // src/features/cotizacion/components/forms/sections/MaterialSelector.tsx
-import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+
 import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
+import { SeccionBloqueadaCard } from "@/components/ui/SeccionBloqueadaCard";
+import { SeccionErroresInline } from "@/components/ui/SeccionErroresInline";
 import { SelectableChip } from "@/components/ui/SelectableChip";
-import { useTheme } from "@/hooks/useTheme";
 import type { MaterialItem } from "@/features/cotizacion/types/formTypes";
+import {
+  obtenerStockGramos,
+  type ErrorCampo,
+} from "@/features/cotizacion/utils/validarSecuenciaCotizacion";
+import { useTheme } from "@/hooks/useTheme";
 
 interface MaterialSelectorProps {
-  materiales: MaterialItem[];
+  /** Materiales que ya pasaron el filtro de stock (calculado en la validación) */
+  materialesDisponibles: MaterialItem[];
   filamentoId?: string;
   onSeleccionar: (id: string) => void;
+  pesoTotalRequerido: number;
+  pesoMinimoConMargen: number;
+  bloqueado: boolean;
+  bloqueadoPor?: string;
+  erroresBloqueantes: ErrorCampo[];
+  errores: ErrorCampo[];
+  completo: boolean;
 }
 
 export function MaterialSelector({
-  materiales,
+  materialesDisponibles,
   filamentoId,
   onSeleccionar,
+  pesoTotalRequerido,
+  pesoMinimoConMargen,
+  bloqueado,
+  bloqueadoPor,
+  erroresBloqueantes,
+  errores,
+  completo,
 }: MaterialSelectorProps) {
   const { theme } = useTheme();
 
-  // Agrupar los materiales por su tipo
   const materialesAgrupados = useMemo(() => {
-    if (!materiales || materiales.length === 0) return {};
+    if (materialesDisponibles.length === 0) return {};
 
-    return materiales.reduce<Record<string, MaterialItem[]>>((acc, mat) => {
-      const tipo = (mat.tipo_material || mat.material || "Otros")
-        .trim()
-        .toUpperCase();
+    return materialesDisponibles.reduce<Record<string, MaterialItem[]>>(
+      (acc, mat: any) => {
+        const tipo = (mat.tipo_material || mat.material || "Otros")
+          .trim()
+          .toUpperCase();
+        if (!acc[tipo]) acc[tipo] = [];
+        acc[tipo].push(mat);
+        return acc;
+      },
+      {},
+    );
+  }, [materialesDisponibles]);
 
-      if (!acc[tipo]) {
-        acc[tipo] = [];
-      }
-      acc[tipo].push(mat);
-      return acc;
-    }, {});
-  }, [materiales]);
+  const categorias = useMemo(
+    () => Object.keys(materialesAgrupados),
+    [materialesAgrupados],
+  );
 
-  const categorias = Object.keys(materialesAgrupados);
+  const [categoriaActiva, setCategoriaActiva] = useState<string | null>(null);
 
-  // Estado para la categoría actualmente seleccionada
-  const [categoriaActiva, setCategoriaActiva] = useState<string | null>(() => {
-    return categorias.length > 0 ? categorias[0] : null;
-  });
-
-  // Si cambia el filamentoId externamente, sincronizar la categoría activa
   useEffect(() => {
-    if (!filamentoId || materiales.length === 0) return;
-
-    const seleccionado = materiales.find((m) => m.id === filamentoId);
-    if (seleccionado) {
-      const tipo = (seleccionado.tipo_material || seleccionado.material || "Otros")
-        .trim()
-        .toUpperCase();
-      setCategoriaActiva(tipo);
-    }
-  }, [filamentoId, materiales]);
-
-  // Si la categoría activa no es válida, tomar la primera
-  useEffect(() => {
-    if (categorias.length > 0 && (!categoriaActiva || !materialesAgrupados[categoriaActiva])) {
+    if (
+      categorias.length > 0 &&
+      (!categoriaActiva || !materialesAgrupados[categoriaActiva])
+    ) {
       setCategoriaActiva(categorias[0]);
+    } else if (categorias.length === 0 && categoriaActiva !== null) {
+      setCategoriaActiva(null);
     }
   }, [categorias, categoriaActiva, materialesAgrupados]);
 
-  if (materiales.length === 0) {
+  // Sincronizar la categoría con el filamento ya seleccionado
+  useEffect(() => {
+    if (!filamentoId) return;
+    const sel: any = materialesDisponibles.find((m) => m.id === filamentoId);
+    if (!sel) return;
+    const tipo = (sel.tipo_material || sel.material || "Otros")
+      .trim()
+      .toUpperCase();
+    setCategoriaActiva(tipo);
+  }, [filamentoId, materialesDisponibles]);
+
+  /* ---------- Estado bloqueado (piezas incompletas) ---------- */
+  if (bloqueado) {
+    return (
+      <SeccionBloqueadaCard
+        numeroPaso={2}
+        tituloSeccion="Material / Filamento"
+        bloqueadoPor={bloqueadoPor}
+        errores={erroresBloqueantes}
+        icono="cube-outline"
+      />
+    );
+  }
+
+  /* ---------- Sin stock suficiente ---------- */
+  if (materialesDisponibles.length === 0) {
     return (
       <View style={styles.container}>
         <View style={styles.labelGroup}>
-          <Ionicons name="cube-outline" size={16} color={theme.textSecondary} />
-          <Text style={[styles.label, { color: theme.textSecondary }]}>
-            Material / Filamento
+          <Ionicons name="cube-outline" size={16} color={theme.danger} />
+          <Text style={[styles.label, { color: theme.danger }]}>
+            2. Material / Filamento
           </Text>
         </View>
         <EmptyStateCard
-          icon="cube-outline"
-          title="Sin materiales disponibles"
-          description="No hay materiales activos en el catálogo. Para cotizar, primero debes registrar materiales en el sistema."
-          actionIcon="information-circle-outline"
-          actionText="Contacta al administrador"
+          icon="alert-circle-outline"
+          title="Sin filamentos con stock suficiente"
+          description={`El peso total requerido es de ${pesoTotalRequerido}g (+50g de margen = ${pesoMinimoConMargen}g necesarios). No hay bobinas en el inventario con esa cantidad disponible.`}
+          actionIcon="warning-outline"
+          actionText="Revisa el inventario de materiales"
         />
       </View>
     );
@@ -90,13 +127,40 @@ export function MaterialSelector({
 
   return (
     <View style={styles.container}>
-      {/* Paso 1: Selección de Tipo de Material */}
       <View style={styles.labelGroup}>
+        <View
+          style={[
+            styles.stepBubble,
+            {
+              backgroundColor: completo
+                ? "rgba(22, 163, 74, 0.15)"
+                : `${theme.primary}1F`,
+            },
+          ]}
+        >
+          {completo ? (
+            <Ionicons name="checkmark" size={13} color="#16A34A" />
+          ) : (
+            <Text style={[styles.stepNumber, { color: theme.primary }]}>2</Text>
+          )}
+        </View>
         <Ionicons name="cube-outline" size={16} color={theme.primary} />
         <Text style={[styles.label, { color: theme.textPrimary }]}>
-          1. Selecciona el Tipo de Material
+          Material / Filamento
         </Text>
       </View>
+
+      <View style={styles.hintRow}>
+        <Ionicons name="scale-outline" size={13} color={theme.textSecondary} />
+        <Text style={[styles.hintText, { color: theme.textSecondary }]}>
+          Requerido: {pesoTotalRequerido}g + 50g de margen ={" "}
+          {pesoMinimoConMargen}g
+        </Text>
+      </View>
+
+      <Text style={[styles.stepCaption, { color: theme.textSecondary }]}>
+        2.1 Tipo de material
+      </Text>
 
       <View style={styles.categoriesRow}>
         {categorias.map((cat) => {
@@ -152,15 +216,11 @@ export function MaterialSelector({
         })}
       </View>
 
-      {/* Paso 2: Selección de Color del Filamento */}
       {categoriaActiva && (
         <View
           style={[
             styles.colorsCard,
-            {
-              backgroundColor: theme.bgSurface,
-              borderColor: theme.border,
-            },
+            { backgroundColor: theme.bgSurface, borderColor: theme.border },
           ]}
         >
           <View style={styles.colorsHeader}>
@@ -170,20 +230,21 @@ export function MaterialSelector({
               color={theme.primary}
             />
             <Text style={[styles.colorsTitle, { color: theme.textPrimary }]}>
-              2. Color / Variante de {categoriaActiva}
+              2.2 Color / Variante de {categoriaActiva}
             </Text>
           </View>
 
           <View style={styles.chipsRow}>
-            {coloresDisponibles.map((mat) => {
+            {coloresDisponibles.map((mat: any) => {
               const nombreMaterial =
                 mat.nombre ?? mat.material ?? mat.tipo_material ?? "Material";
               const displayLabel = mat.color ? mat.color : nombreMaterial;
+              const stock = obtenerStockGramos(mat);
 
               return (
                 <SelectableChip
                   key={mat.id}
-                  label={displayLabel}
+                  label={`${displayLabel}${stock ? ` · ${stock}g` : ""}`}
                   selected={filamentoId === mat.id}
                   onPress={() => onSeleccionar(mat.id)}
                   showIcon
@@ -193,24 +254,37 @@ export function MaterialSelector({
           </View>
         </View>
       )}
+
+      <SeccionErroresInline errores={errores} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    marginVertical: 8,
-  },
+  container: { marginVertical: 8 },
   labelGroup: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
+    gap: 7,
+    marginBottom: 6,
   },
-  label: {
-    fontSize: 14,
-    fontWeight: "700",
+  stepBubble: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  stepNumber: { fontSize: 11, fontWeight: "800" },
+  label: { fontSize: 14, fontWeight: "700" },
+  hintRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginBottom: 10,
+  },
+  hintText: { fontSize: 11.5, fontWeight: "500" },
+  stepCaption: { fontSize: 12, fontWeight: "600", marginBottom: 8 },
   categoriesRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -226,37 +300,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  categoryTabText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  badgeCount: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 10,
-  },
-  badgeCountText: {
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  colorsCard: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 12,
-  },
+  categoryTabText: { fontSize: 13, fontWeight: "700" },
+  badgeCount: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 10 },
+  badgeCountText: { fontSize: 10, fontWeight: "700" },
+  colorsCard: { borderWidth: 1, borderRadius: 10, padding: 12 },
   colorsHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     marginBottom: 10,
   },
-  colorsTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  chipsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
+  colorsTitle: { fontSize: 13, fontWeight: "600" },
+  chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
 });

@@ -1,8 +1,6 @@
 // src/features/pedidos/components/PedidoCard.tsx
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
 import {
-  Image,
   Linking,
   StyleSheet,
   Text,
@@ -17,7 +15,7 @@ import {
 } from "../constants";
 import { EstadoPago, Pedido } from "../types";
 import { calcularPrioridad } from "../utils/fechas";
-import { formatBs } from "../utils/formato";
+import { CarruselImagenesCotizacion } from "./CarruselImagenesCotizacion";
 
 interface PedidoCardProps {
   theme: any;
@@ -50,21 +48,58 @@ export function PedidoCard({ theme, pedido, onPress }: PedidoCardProps) {
   const prioridad = calcularPrioridad(pedido.fechaEntregaISO, pedido.estado);
   const prioridadCfg = PRIORIDAD_CONFIG[prioridad];
 
-  const checklistHecho = pedido.envio.checklist.filter((c) => c.hecho).length;
-  const checklistTotal = pedido.envio.checklist.length;
-  const progreso = checklistTotal > 0 ? checklistHecho / checklistTotal : 0;
+  // Cálculo profesional del porcentaje de avance de impresión (Sincronizado con el hook)
+  const obtenerProgresoImpresion = (p: Pedido): number => {
+    if (p.estado === "pendiente") return 0;
+    if (p.estado === "listo" || p.estado === "entregado") return 1;
+
+    if (p.impresion) {
+      const impresionAny = p.impresion as any;
+
+      // 1. Si ya viene un progreso numérico explícito, úsalo
+      if (typeof impresionAny.progreso === "number") {
+        return impresionAny.progreso;
+      }
+
+      const inicio = impresionAny.fechaInicioImpresion;
+      const horasPlanificadas =
+        impresionAny.intentoActual?.horasPlanificadas ??
+        impresionAny.tiempoImpresionHoras ??
+        0;
+
+      // 2. Cálculo en base al tiempo transcurrido (idéntico al hook de impresión)
+      if (p.estado === "en_impresion" && inicio && horasPlanificadas > 0) {
+        const inicioMs = new Date(inicio).getTime();
+        const totalMs = horasPlanificadas * 60 * 60 * 1000;
+        const transcurridoMs = Date.now() - inicioMs;
+        const calculado = transcurridoMs / totalMs;
+        return Math.min(Math.max(calculado, 0), 1); // Limitar estrictamente entre 0 y 1
+      }
+
+      // 3. Fallback a horas actuales si estuvieran registradas
+      if (impresionAny.horasActuales && horasPlanificadas > 0) {
+        const calculado = impresionAny.horasActuales / horasPlanificadas;
+        return Math.min(Math.max(calculado, 0), 1);
+      }
+    }
+
+    // 4. Si no hay datos suficientes, retornamos 0 en lugar del 50% estático anterior
+    return 0;
+  };
+
+  const progresoImpresion = obtenerProgresoImpresion(pedido);
 
   const iconoMetodoPago =
-    METODO_PAGO_ICONOS[pedido.pago.metodo?.toLowerCase() ?? ""] || "wallet-outline";
+    METODO_PAGO_ICONOS[pedido.pago.metodo?.toLowerCase() ?? ""] ||
+    "wallet-outline";
   const iconoTipoEnvio =
     TIPO_ENVIO_ICONOS[pedido.envio.tipo?.toLowerCase() ?? ""] ||
     ENVIO_CONFIG[pedido.envio.tipo]?.icono ||
     "cube-outline";
 
-  const imagenUri =
-  pedido.fotoFinalUrl ||
-  pedido.fotoCotizacionUrl ||
-  "https://images.unsplash.com/photo-1615840243388-00133c921503?q=80&w=600&auto=format&fit=crop";
+  const imagenesParaCarrusel = pedido.fotoFinalUrl
+    ? [pedido.fotoFinalUrl, ...pedido.imagenesCotizacion]
+    : pedido.imagenesCotizacion;
 
   const handleAbrirWhatsapp = (e: any) => {
     e.stopPropagation();
@@ -86,14 +121,13 @@ export function PedidoCard({ theme, pedido, onPress }: PedidoCardProps) {
       activeOpacity={0.9}
       onPress={onPress}
     >
-      {/* 1. SECCIÓN SUPERIOR: IMAGEN CON ELEMENTOS SUPERPUESTOS */}
+      {/* 1. SECCIÓN SUPERIOR: CARRUSEL DE IMÁGENES CON ELEMENTOS SUPERPUESTOS */}
       <View style={styles.imageContainer}>
-        <Image
-          source={{ uri: imagenUri }}
-          style={styles.image}
-          resizeMode="cover"
+        <CarruselImagenesCotizacion
+          imagenes={imagenesParaCarrusel}
+          height={140}
         />
-        <View style={styles.imageOverlay} />
+        <View style={styles.imageOverlay} pointerEvents="none" />
 
         {/* Fila superior superpuesta */}
         <View style={styles.topOverlayRow}>
@@ -102,7 +136,9 @@ export function PedidoCard({ theme, pedido, onPress }: PedidoCardProps) {
             <Text style={styles.codigoBadgeText}>{pedido.codigo}</Text>
           </View>
 
-          <View style={[styles.estadoBadge, { backgroundColor: estadoCfg.color }]}>
+          <View
+            style={[styles.estadoBadge, { backgroundColor: estadoCfg.color }]}
+          >
             <Ionicons name={estadoCfg.icono} size={11} color="#FFFFFF" />
             <Text style={styles.estadoBadgeText}>{estadoCfg.label}</Text>
           </View>
@@ -114,7 +150,12 @@ export function PedidoCard({ theme, pedido, onPress }: PedidoCardProps) {
             {pedido.pieza}
           </Text>
 
-          <View style={[styles.pagoBadgeOverlay, { backgroundColor: pagoCfg.color }]}>
+          <View
+            style={[
+              styles.pagoBadgeOverlay,
+              { backgroundColor: pagoCfg.color },
+            ]}
+          >
             <Ionicons
               name={PAGO_ICONOS[pedido.pago.estado]}
               size={11}
@@ -129,9 +170,13 @@ export function PedidoCard({ theme, pedido, onPress }: PedidoCardProps) {
         </View>
       </View>
 
-      {/* 2. SECCIÓN CLIENTE Y ACCIÓN WHATSAPP */}
+      {/* 2. SECCIÓN CLIENTE Y ACCIÓN DE BOTÓN (ENTREGAR / CHATEAR) */}
       <View style={styles.clienteRow}>
-        <Ionicons name="person-circle-outline" size={18} color={theme.textPrimary} />
+        <Ionicons
+          name="person-circle-outline"
+          size={18}
+          color={theme.textPrimary}
+        />
         <Text
           style={[styles.clienteNombre, { color: theme.textPrimary }]}
           numberOfLines={1}
@@ -147,44 +192,61 @@ export function PedidoCard({ theme, pedido, onPress }: PedidoCardProps) {
             ]}
           >
             <Ionicons name="star" size={9} color={theme.primary} />
-            <Text style={[styles.recurrenteBadgeText, { color: theme.primary }]}>
+            <Text
+              style={[styles.recurrenteBadgeText, { color: theme.primary }]}
+            >
               Frecuente
             </Text>
           </View>
         )}
 
-        {Boolean(pedido.cliente.telefono) && (
+        {pedido.estado === "listo" ? (
           <TouchableOpacity
-            style={styles.whatsappBtn}
-            onPress={handleAbrirWhatsapp}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={[styles.accionPillBtn, { backgroundColor: "#10B981" }]}
+            onPress={(e) => {
+              e.stopPropagation();
+              onPress(); // abre el modal de detalle
+            }}
+            activeOpacity={0.85}
           >
-            <Ionicons name="logo-whatsapp" size={18} color="#22C55E" />
+            <Ionicons name="checkmark-done-outline" size={14} color="#FFFFFF" />
+            <Text style={styles.accionPillText}>Entregar pedido</Text>
           </TouchableOpacity>
+        ) : (
+          Boolean(pedido.cliente.telefono) && (
+            <TouchableOpacity
+              style={[styles.accionPillBtn, { backgroundColor: "#25D366" }]}
+              onPress={handleAbrirWhatsapp}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="logo-whatsapp" size={14} color="#FFFFFF" />
+              <Text style={styles.accionPillText}>Chatear</Text>
+            </TouchableOpacity>
+          )
         )}
       </View>
 
-      {/* 3. BARRA DE CARGA / CHECKLIST */}
-      {checklistTotal > 0 && (
-        <View style={styles.progresoRow}>
-          <Ionicons name="checkbox-outline" size={12} color={theme.textSecondary} />
-          <View style={[styles.progresoTrack, { backgroundColor: theme.bgPrimary }]}>
-            <View
-              style={[
-                styles.progresoFill,
-                {
-                  width: `${progreso * 100}%`,
-                  backgroundColor: progreso === 1 ? "#22C55E" : theme.primary,
-                },
-              ]}
-            />
-          </View>
-          <Text style={[styles.progresoTexto, { color: theme.textSecondary }]}>
-            {checklistHecho}/{checklistTotal}
-          </Text>
+      {/* 3. BARRA DE PROGRESO DE IMPRESIÓN (SIEMPRE VISIBLE) */}
+      <View style={styles.progresoRow}>
+        <Ionicons name="print-outline" size={12} color={theme.textSecondary} />
+        <View
+          style={[styles.progresoTrack, { backgroundColor: theme.bgPrimary }]}
+        >
+          <View
+            style={[
+              styles.progresoFill,
+              {
+                width: `${Math.round(progresoImpresion * 100)}%`,
+                backgroundColor:
+                  progresoImpresion >= 1 ? "#22C55E" : theme.primary,
+              },
+            ]}
+          />
         </View>
-      )}
+        <Text style={[styles.progresoTexto, { color: theme.textSecondary }]}>
+          {Math.round(progresoImpresion * 100)}%
+        </Text>
+      </View>
 
       {/* 4. SECCIÓN INFERIOR: FECHA, ENVÍO, MÉTODO Y PRECIOS */}
       <View
@@ -200,13 +262,18 @@ export function PedidoCard({ theme, pedido, onPress }: PedidoCardProps) {
           <Ionicons
             name="calendar-outline"
             size={13}
-            color={prioridad !== "normal" ? prioridadCfg.color : theme.textSecondary}
+            color={
+              prioridad !== "normal" ? prioridadCfg.color : theme.textSecondary
+            }
           />
           <Text
             style={[
               styles.metaText,
               {
-                color: prioridad !== "normal" ? prioridadCfg.color : theme.textSecondary,
+                color:
+                  prioridad !== "normal"
+                    ? prioridadCfg.color
+                    : theme.textSecondary,
                 fontWeight: prioridad !== "normal" ? "700" : "500",
               },
             ]}
@@ -217,19 +284,31 @@ export function PedidoCard({ theme, pedido, onPress }: PedidoCardProps) {
 
         <View style={styles.footerRightGroup}>
           <View style={styles.metaItem}>
-            <Ionicons name={iconoTipoEnvio} size={14} color={theme.textSecondary} />
+            <Ionicons
+              name={iconoTipoEnvio}
+              size={14}
+              color={theme.textSecondary}
+            />
           </View>
 
           <View style={styles.metaItem}>
-            <Ionicons name={iconoMetodoPago} size={14} color={theme.textSecondary} />
+            <Ionicons
+              name={iconoMetodoPago}
+              size={14}
+              color={theme.textSecondary}
+            />
           </View>
 
           <View style={styles.pagoMontoContainer}>
-            <Text style={[styles.montoPagadoText, { color: theme.textSecondary }]}>
+            <Text
+              style={[styles.montoPagadoText, { color: theme.textSecondary }]}
+            >
               {pedido.pago.montoCobrado || 0}
             </Text>
 
-            <Text style={[styles.separadorText, { color: theme.textSecondary }]}>
+            <Text
+              style={[styles.separadorText, { color: theme.textSecondary }]}
+            >
               /
             </Text>
 
@@ -264,12 +343,8 @@ const styles = StyleSheet.create({
     position: "relative",
     backgroundColor: "#1E293B",
   },
-  image: {
-    width: "100%",
-    height: "100%",
-  },
   imageOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.35)",
   },
   topOverlayRow: {
@@ -368,9 +443,19 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     fontWeight: "800",
   },
-  whatsappBtn: {
-    padding: 2,
+  accionPillBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
     marginLeft: 4,
+  },
+  accionPillText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "700",
   },
   progresoRow: {
     flexDirection: "row",

@@ -85,7 +85,9 @@ export function FormularioFilamento({
   visible: boolean;
   theme: any;
   onClose: () => void;
-  onGuardar: (f: NuevoFilamento & { imagenUrl?: string }) => void | Promise<void>;
+  onGuardar: (
+    f: NuevoFilamento & { imagenUrl: string },
+  ) => void | Promise<void>;
 }) {
   const [marca, setMarca] = useState("");
   const [tipo, setTipo] = useState<MaterialFilamentoUI>("PLA");
@@ -100,7 +102,9 @@ export function FormularioFilamento({
   const [intentoGuardar, setIntentoGuardar] = useState(false);
   const [errores, setErrores] = useState<Record<string, string>>({});
 
-  const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(null);
+  const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(
+    null,
+  );
 
   const handleColorInputChange = (texto: string) => {
     setNombreColor(texto);
@@ -124,20 +128,20 @@ export function FormularioFilamento({
   };
 
   // ---------------------------------------------------------------------
-  // SELECCIÓN DE IMAGEN DESDE GALERÍA
+  // SELECCIÓN DE IMAGEN DESDE GALERÍA (ESTRICTAMENTE SOLO IMÁGENES)
   // ---------------------------------------------------------------------
   const seleccionarImagenGaleria = async () => {
     const permResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permResult.granted) {
       Alert.alert(
         "Permiso denegado",
-        "Se necesitan permisos de acceso a la galería para seleccionar una imagen."
+        "Se necesitan permisos de acceso a la galería para seleccionar una imagen.",
       );
       return;
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: ["images"], // Restringe únicamente a archivos de imagen nativos
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
@@ -145,6 +149,7 @@ export function FormularioFilamento({
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
       setImagenSeleccionada(result.assets[0].uri);
+      if (errores.imagen) setErrores((prev) => ({ ...prev, imagen: "" }));
     }
   };
 
@@ -154,8 +159,12 @@ export function FormularioFilamento({
     const umbralNum = Number(umbralBajoStock);
     const costoNum = Number(costoCompra);
 
+    if (!imagenSeleccionada) {
+      nuevosErrores.imagen = "subir una imagen del filamento";
+    }
     if (!marca.trim()) nuevosErrores.marca = "Escriba el nombre de la marca";
-    if (!nombreColor.trim()) nuevosErrores.color = "Escriba el nombre del color";
+    if (!nombreColor.trim())
+      nuevosErrores.color = "Escriba el nombre del color";
 
     if (!stockGramos) {
       nuevosErrores.stock = "Ingrese el stock inicial";
@@ -214,13 +223,19 @@ export function FormularioFilamento({
       umbralBajoStock: Number(umbralBajoStock),
       fechaCompra: formatToDbDate(new Date()),
       proveedor: proveedor.trim() || "—",
-      imagenUrl: imagenSeleccionada || undefined,
+      imagenUrl: imagenSeleccionada!,
     };
 
     try {
       setGuardando(true);
       await onGuardar(nuevo);
       limpiarYCerrar();
+    } catch (e) {
+      // NUEVO: antes el error se perdía silenciosamente
+      Alert.alert(
+        "Error al guardar",
+        e instanceof Error ? e.message : "No se pudo guardar el filamento.",
+      );
     } finally {
       setGuardando(false);
     }
@@ -247,12 +262,20 @@ export function FormularioFilamento({
               </Text>
             </View>
 
-            {/* SELECCIÓN Y PREVISUALIZACIÓN DE IMAGEN (ANTES DE MARCA) */}
-            <Campo theme={theme} label="Imagen del filamento" icon="image-outline">
+            {/* SELECCIÓN Y PREVISUALIZACIÓN DE IMAGEN (OBLIGATORIA) */}
+            <Campo
+              theme={theme}
+              label="Imagen del filamento (Obligatorio)"
+              icon="image-outline"
+              error={intentoGuardar ? errores.imagen : ""}
+            >
               <View style={styles.seccionImagenes}>
                 {imagenSeleccionada ? (
                   <View style={styles.previewContainer}>
-                    <Image source={{ uri: imagenSeleccionada }} style={styles.imgPreview} />
+                    <Image
+                      source={{ uri: imagenSeleccionada }}
+                      style={styles.imgPreview}
+                    />
                     <TouchableOpacity
                       style={styles.quitarImgBtn}
                       onPress={() => setImagenSeleccionada(null)}
@@ -262,12 +285,38 @@ export function FormularioFilamento({
                   </View>
                 ) : (
                   <TouchableOpacity
-                    style={[styles.cargarImgBtn, { borderColor: theme.primary }]}
+                    style={[
+                      styles.cargarImgBtn,
+                      {
+                        borderColor:
+                          intentoGuardar && errores.imagen
+                            ? theme.danger || "#EF4444"
+                            : theme.primary,
+                      },
+                    ]}
                     onPress={seleccionarImagenGaleria}
                   >
-                    <Ionicons name="images-outline" size={18} color={theme.primary} />
-                    <Text style={[styles.cargarImgText, { color: theme.primary }]}>
-                      Subir imagen desde galería
+                    <Ionicons
+                      name="images-outline"
+                      size={18}
+                      color={
+                        intentoGuardar && errores.imagen
+                          ? theme.danger || "#EF4444"
+                          : theme.primary
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.cargarImgText,
+                        {
+                          color:
+                            intentoGuardar && errores.imagen
+                              ? theme.danger || "#EF4444"
+                              : theme.primary,
+                        },
+                      ]}
+                    >
+                      Subir formato de imagen (JPG, PNG)
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -295,7 +344,8 @@ export function FormularioFilamento({
                 value={marca}
                 onChangeText={(v) => {
                   setMarca(v);
-                  if (errores.marca) setErrores((prev) => ({ ...prev, marca: "" }));
+                  if (errores.marca)
+                    setErrores((prev) => ({ ...prev, marca: "" }));
                 }}
                 placeholder="Ej. Polymaker, eSun..."
                 placeholderTextColor={theme.textSecondary}
@@ -340,7 +390,8 @@ export function FormularioFilamento({
                   value={nombreColor}
                   onChangeText={(v) => {
                     handleColorInputChange(v);
-                    if (errores.color) setErrores((prev) => ({ ...prev, color: "" }));
+                    if (errores.color)
+                      setErrores((prev) => ({ ...prev, color: "" }));
                   }}
                   placeholder="Ej. Blue, Silk Gold, #2563EB"
                   placeholderTextColor={theme.textSecondary}
@@ -351,7 +402,9 @@ export function FormularioFilamento({
                     styles.colorPreviewBox,
                     {
                       backgroundColor: colorHex || "transparent",
-                      borderColor: colorHex ? "rgba(0,0,0,0.15)" : theme.bgSecondary,
+                      borderColor: colorHex
+                        ? "rgba(0,0,0,0.15)"
+                        : theme.bgSecondary,
                     },
                   ]}
                 >
@@ -400,7 +453,8 @@ export function FormularioFilamento({
                   value={stockGramos}
                   onChangeText={(v) => {
                     setStockGramos(sanitizeInteger(v, 1000));
-                    if (errores.stock) setErrores((prev) => ({ ...prev, stock: "" }));
+                    if (errores.stock)
+                      setErrores((prev) => ({ ...prev, stock: "" }));
                   }}
                   unidad="g"
                   keyboardType="number-pad"
@@ -421,7 +475,8 @@ export function FormularioFilamento({
                   value={costoCompra}
                   onChangeText={(v) => {
                     setCostoCompra(sanitizeDecimal(v));
-                    if (errores.costo) setErrores((prev) => ({ ...prev, costo: "" }));
+                    if (errores.costo)
+                      setErrores((prev) => ({ ...prev, costo: "" }));
                   }}
                   unidad="Bs"
                   keyboardType="decimal-pad"
@@ -445,7 +500,8 @@ export function FormularioFilamento({
                   value={umbralBajoStock}
                   onChangeText={(v) => {
                     setUmbralBajoStock(sanitizeInteger(v));
-                    if (errores.umbral) setErrores((prev) => ({ ...prev, umbral: "" }));
+                    if (errores.umbral)
+                      setErrores((prev) => ({ ...prev, umbral: "" }));
                   }}
                   unidad="g"
                   keyboardType="number-pad"
@@ -463,7 +519,10 @@ export function FormularioFilamento({
                 <TextInput
                   style={[
                     styles.input,
-                    { color: theme.textPrimary, borderColor: theme.bgSecondary },
+                    {
+                      color: theme.textPrimary,
+                      borderColor: theme.bgSecondary,
+                    },
                   ]}
                   value={proveedor}
                   onChangeText={setProveedor}
@@ -475,10 +534,7 @@ export function FormularioFilamento({
 
             {/* BOTÓN GUARDAR */}
             <TouchableOpacity
-              style={[
-                styles.guardarBtn,
-                { backgroundColor: theme.primary },
-              ]}
+              style={[styles.guardarBtn, { backgroundColor: theme.primary }]}
               disabled={guardando}
               onPress={guardar}
             >
@@ -563,9 +619,7 @@ function Campo({
   return (
     <View style={[styles.campo, flex && { flex: 1 }]}>
       <View style={styles.labelRow}>
-        {icon && (
-          <Ionicons name={icon} size={13} color={theme.textSecondary} />
-        )}
+        {icon && <Ionicons name={icon} size={13} color={theme.textSecondary} />}
         <Text style={[styles.campoLabel, { color: theme.textSecondary }]}>
           {label}
         </Text>
@@ -573,8 +627,14 @@ function Campo({
       {children}
       {Boolean(error) && (
         <View style={styles.errorRow}>
-          <Ionicons name="alert-circle-outline" size={12} color={theme.danger || "#EF4444"} />
-          <Text style={[styles.errorText, { color: theme.danger || "#EF4444" }]}>
+          <Ionicons
+            name="alert-circle-outline"
+            size={12}
+            color={theme.danger || "#EF4444"}
+          />
+          <Text
+            style={[styles.errorText, { color: theme.danger || "#EF4444" }]}
+          >
             {error}
           </Text>
         </View>

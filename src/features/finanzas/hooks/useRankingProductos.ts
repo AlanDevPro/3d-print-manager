@@ -1,33 +1,53 @@
-//src/features/finanzas/hooks/useRankingProductos.ts
+// src/features/finanzas/hooks/useRankingProductos.ts
 import { useEmpresaActual } from "@/context/EmpresaContext";
-import { useEffect, useState } from "react";
-import { mapProductoRentabilidadDesdeDB } from "../mappers/finanzasMapper";
-import { obtenerRankingProductos } from "../services/finanzasService";
-import { ProductoRentabilidadUI } from "../types";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  obtenerRangoPeriodo,
+  obtenerRankingProductos,
+} from "../services/finanzasService";
+import { ParetoUI, Periodo, ProductoRentabilidadUI } from "../types";
 import { puedeVerFinanzas } from "../utils/finanzasAcceso";
+import { construirPareto } from "../utils/finanzasCalculos";
 
-export function useRankingProductos(limite = 5) {
+const PARETO_VACIO: ParetoUI = { items: [], total: 0, indiceCorte80: -1 };
+
+export function useRankingProductos(periodo: Periodo, limite = 8) {
   const { empresaId, rol } = useEmpresaActual();
   const [productos, setProductos] = useState<ProductoRentabilidadUI[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const cargar = useCallback(async () => {
     if (!empresaId || !puedeVerFinanzas(rol)) {
       setLoading(false);
       return;
     }
-    (async () => {
-      setLoading(true);
-      try {
-        const rows = await obtenerRankingProductos(empresaId, limite);
-        setProductos(rows.map(mapProductoRentabilidadDesdeDB));
-      } catch (error) {
-        console.error("Error al cargar ranking de productos:", error);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [empresaId, rol, limite]);
+    setLoading(true);
+    setError(null);
+    try {
+      const { desde, hasta } = obtenerRangoPeriodo(periodo);
+      const rows = await obtenerRankingProductos(
+        empresaId,
+        desde,
+        hasta,
+        limite,
+      );
+      setProductos(rows);
+    } catch (e: any) {
+      setError(e?.message ?? "Error al cargar el ranking de productos");
+    } finally {
+      setLoading(false);
+    }
+  }, [empresaId, rol, periodo, limite]);
 
-  return { productos, loading };
+  useEffect(() => {
+    cargar();
+  }, [cargar]);
+
+  const pareto = useMemo(
+    () => (productos.length ? construirPareto(productos) : PARETO_VACIO),
+    [productos],
+  );
+
+  return { productos, pareto, loading, error, refetch: cargar };
 }

@@ -208,10 +208,10 @@ AND tc.table_schema = 'public'
 WHERE
 c.table_schema = 'public'
 AND c.table_name IN (
-'catalogo_productos', 'clientes', 'configuracion_empresa', 'cotizacion_items',
+'catalogo_productos','categorias_producto', 'clientes', 'configuracion_empresa', 'cotizacion_items',
 'cotizaciones', 'egresos', 'empresa_miembros', 'empresas', 'filamentos',
 'impresoras', 'ingresos', 'metas_financieras', 'pedido_checklist_items',
-'pedido_eventos', 'pedido_pagos', 'pedidos', 'profiles', 'reglas_margen_ganancia'
+'pedido_eventos','pedido_impresion_intentos','pedido_pagos', 'pedidos','piezas_stock' ,'profiles', 'reglas_margen_ganancia'
 )
 ORDER BY
 c.table_name,

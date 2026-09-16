@@ -1,15 +1,11 @@
-//src/features/finanzas/hooks/useMetaMensual.ts
+// src/features/finanzas/hooks/useMetaMensual.ts
 import { useEmpresaActual } from "@/context/EmpresaContext";
 import { useCallback, useEffect, useState } from "react";
-import { obtenerMetaMensual } from "../services/finanzasService";
+import {
+  obtenerMetaMensual,
+  primerDiaMesActual,
+} from "../services/finanzasService";
 import { puedeVerFinanzas } from "../utils/finanzasAcceso";
-
-function primerDiaMesActual(): string {
-  const hoy = new Date();
-  return new Date(hoy.getFullYear(), hoy.getMonth(), 1)
-    .toISOString()
-    .slice(0, 10);
-}
 
 export function useMetaMensual() {
   const { empresaId, rol } = useEmpresaActual();
@@ -27,6 +23,7 @@ export function useMetaMensual() {
       setMeta(Number(row?.monto_meta ?? 0));
     } catch (error) {
       console.error("Error al cargar meta mensual:", error);
+      setMeta(0);
     } finally {
       setLoading(false);
     }

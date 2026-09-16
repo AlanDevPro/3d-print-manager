@@ -9,7 +9,7 @@ import { KpiCarousel } from "@/features/dashboard/components/KpiCarousel";
 import { useDashboardData } from "@/features/dashboard/hooks/useDashboardData";
 import { useTheme } from "@/hooks/useTheme";
 import { useFocusEffect } from "expo-router";
-import React, { useCallback } from "react";
+import { useCallback } from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -40,7 +40,7 @@ export default function InicioScreen() {
   useFocusEffect(
     useCallback(() => {
       refetch();
-    }, [refetch])
+    }, [refetch]),
   );
 
   if (loading) {

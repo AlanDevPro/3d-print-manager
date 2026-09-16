@@ -12,7 +12,7 @@ import {
   usePedidos,
 } from "@/features/pedidos";
 import { useTheme } from "@/hooks/useTheme";
-import React, { useState } from "react";
+import { useState } from "react";
 import { FlatList, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -31,9 +31,10 @@ export default function PedidosScreen() {
     setBusqueda,
     recargar,
     actualizarPedidoLocal,
+    cargando,
   } = usePedidos();
 
-  // Desestructuración mejorada de acciones requeridas por la vista y el modal
+  // Desestructuración de acciones requeridas por la vista y el modal
   const {
     cambiarEstado,
     marcarComoPagado,
@@ -57,7 +58,8 @@ export default function PedidosScreen() {
           icono: "checkmark-done-circle-outline" as const,
           mensaje: "Sin pedidos completados",
           subtitulo: "Los pedidos finalizados aparecerán aquí automáticamente",
-          accionSugerida: "Los pedidos se completan desde el detalle de cada uno",
+          accionSugerida:
+            "Los pedidos se completan desde el detalle de cada uno",
         };
       case "en_impresion":
         return {
@@ -102,6 +104,8 @@ export default function PedidosScreen() {
         data={pedidosFiltrados}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
+        refreshing={cargando}
+        onRefresh={recargar}
         ListHeaderComponent={
           <PedidosHeader
             theme={theme}

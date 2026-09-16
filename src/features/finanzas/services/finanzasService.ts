@@ -1,21 +1,55 @@
-//src/features/finanzas/services/finanzasService.ts
-import { supabase } from "@/services/supabase/client";
-import { Periodo } from "../types";
+// src/features/finanzas/services/finanzasService.ts
+//
+// Todas las consultas apuntan a tablas que existen en el esquema:
+// ingresos, egresos, pedidos, pedido_impresion_intentos, filamentos,
+// metas_financieras, configuracion_empresa, catalogo_productos.
+//
+// Ya no se consultan vistas (vista_finanzas_diario / vista_productos_rentabilidad /
+// vista_clientes_stats): la agregación se hace con los datos ya traídos.
 
-export function obtenerRangoPeriodo(periodo: Periodo) {
+import { supabase } from "@/services/supabase/client";
+import { MESES_SERIE } from "../constantes";
+import { Periodo, RangoFechas } from "../types";
+import { aISO } from "../utils/finanzasFormato";
+
+// ---------------------------------------------------------------------------
+// Rangos de fechas
+// ---------------------------------------------------------------------------
+export function obtenerRangoPeriodo(periodo: Periodo): RangoFechas {
   const hoy = new Date();
-  const desde = new Date(hoy);
-  if (periodo === "semana") {
-    desde.setDate(hoy.getDate() - 7);
-  } else {
-    desde.setDate(1); // primer día del mes actual
+  let desde: Date;
+
+  switch (periodo) {
+    case "semana":
+      desde = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 6);
+      break;
+    case "anio":
+      desde = new Date(hoy.getFullYear(), 0, 1);
+      break;
+    case "mes":
+    default:
+      desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+      break;
   }
-  return {
-    desde: desde.toISOString().slice(0, 10),
-    hasta: hoy.toISOString().slice(0, 10),
-  };
+
+  return { desde: aISO(desde), hasta: aISO(hoy) };
 }
 
+/** Rango que cubre los últimos `meses` meses completos (incluido el actual). */
+export function obtenerRangoSerie(meses = MESES_SERIE): RangoFechas {
+  const hoy = new Date();
+  const desde = new Date(hoy.getFullYear(), hoy.getMonth() - (meses - 1), 1);
+  return { desde: aISO(desde), hasta: aISO(hoy) };
+}
+
+export function primerDiaMesActual(): string {
+  const hoy = new Date();
+  return aISO(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
+}
+
+// ---------------------------------------------------------------------------
+// Movimientos
+// ---------------------------------------------------------------------------
 export async function obtenerIngresos(
   empresaId: string,
   desde: string,
@@ -23,7 +57,9 @@ export async function obtenerIngresos(
 ) {
   const { data, error } = await supabase
     .from("ingresos")
-    .select("*, clientes(nombre), catalogo_productos(nombre)")
+    .select(
+      "id, concepto, monto, metodo, fecha, producto_id, clientes(nombre), catalogo_productos(nombre, categoria)",
+    )
     .eq("empresa_id", empresaId)
     .gte("fecha", desde)
     .lte("fecha", hasta)
@@ -40,7 +76,7 @@ export async function obtenerEgresos(
 ) {
   const { data, error } = await supabase
     .from("egresos")
-    .select("*")
+    .select("id, concepto, categoria, monto, metodo, fecha")
     .eq("empresa_id", empresaId)
     .gte("fecha", desde)
     .lte("fecha", hasta)
@@ -50,6 +86,7 @@ export async function obtenerEgresos(
   return data ?? [];
 }
 
+/** Saldo por cobrar: pedidos que aún no están pagados por completo. */
 export async function obtenerCobrosPendientes(empresaId: string) {
   const { data, error } = await supabase
     .from("pedidos")
@@ -58,70 +95,124 @@ export async function obtenerCobrosPendientes(empresaId: string) {
     .neq("pago_estado", "pagado");
 
   if (error) throw error;
-  return (data ?? []).reduce(
-    (acc, p) => acc + (Number(p.pago_total) - Number(p.pago_monto_cobrado)),
-    0,
-  );
+
+  return (data ?? []).reduce((acc, p: any) => {
+    const saldo = Number(p.pago_total ?? 0) - Number(p.pago_monto_cobrado ?? 0);
+    return acc + Math.max(saldo, 0);
+  }, 0);
 }
 
-export async function obtenerTendenciaFinanciera(empresaId: string) {
-  const { data, error } = await supabase
-    .from("vista_finanzas_diario")
-    .select("*")
-    .eq("empresa_id", empresaId)
-    .order("fecha", { ascending: true });
-
-  if (error) throw error;
-  return data ?? [];
-}
-
-export async function obtenerRankingProductos(empresaId: string, limite = 5) {
-  const { data, error } = await supabase
-    .from("vista_productos_rentabilidad")
-    .select("*")
-    .eq("empresa_id", empresaId)
-    .order("margen_ganancia", { ascending: false }) // 👈 Cambiado: reemplazar "total_generado" por el nombre real (ej. total_ventas)
-    .limit(limite);
-
-  if (error) throw error;
-  return data ?? [];
-}
-
-export async function obtenerRankingClientes(empresaId: string, limite = 4) {
-  const { data, error } = await supabase
-    .from("vista_clientes_stats")
-    .select("*")
-    .eq("empresa_id", empresaId)
-    .order("total_gastado", { ascending: false })
-    .limit(limite);
-
-  if (error) throw error;
-  return data ?? [];
-}
-
-export async function obtenerMetaMensual(
+// ---------------------------------------------------------------------------
+// Producción real (gramos / horas impresas)
+// ---------------------------------------------------------------------------
+export async function obtenerIntentosImpresion(
   empresaId: string,
-  primerDiaMes: string,
+  desde: string,
+  hasta: string,
 ) {
   const { data, error } = await supabase
-    .from("metas_financieras")
-    .select("*")
+    .from("pedido_impresion_intentos")
+    .select(
+      "id, gramos_planificados, gramos_reales, horas_planificadas, horas_reales, resultado, iniciado_at, finalizado_at, created_at",
+    )
     .eq("empresa_id", empresaId)
-    .eq("periodo", primerDiaMes)
+    .not("finalizado_at", "is", null)
+    .gte("finalizado_at", `${desde}T00:00:00`)
+    .lte("finalizado_at", `${hasta}T23:59:59`)
+    .order("finalizado_at", { ascending: true });
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Rentabilidad por producto (Pareto)
+// ---------------------------------------------------------------------------
+/**
+ * Ingresos agrupados por producto en el rango indicado.
+ * Se usa `ingresos.producto_id` -> `catalogo_productos`, sin vistas.
+ */
+export async function obtenerRankingProductos(
+  empresaId: string,
+  desde: string,
+  hasta: string,
+  limite = 8,
+) {
+  const { data, error } = await supabase
+    .from("ingresos")
+    .select("monto, producto_id, catalogo_productos(nombre, categoria)")
+    .eq("empresa_id", empresaId)
+    .not("producto_id", "is", null)
+    .gte("fecha", desde)
+    .lte("fecha", hasta);
+
+  if (error) throw error;
+
+  const acumulado = new Map<
+    string,
+    {
+      productoId: string;
+      nombre: string;
+      categoria: string | null;
+      ventas: number;
+      totalGenerado: number;
+    }
+  >();
+
+  for (const row of (data ?? []) as any[]) {
+    const id = row.producto_id as string;
+    const actual = acumulado.get(id) ?? {
+      productoId: id,
+      nombre: row.catalogo_productos?.nombre ?? "Sin nombre",
+      categoria: row.catalogo_productos?.categoria ?? null,
+      ventas: 0,
+      totalGenerado: 0,
+    };
+    actual.ventas += 1;
+    actual.totalGenerado += Number(row.monto ?? 0);
+    acumulado.set(id, actual);
+  }
+
+  return [...acumulado.values()]
+    .sort((a, b) => b.totalGenerado - a.totalGenerado)
+    .slice(0, limite);
+}
+
+// ---------------------------------------------------------------------------
+// Meta mensual / configuración / inventario
+// ---------------------------------------------------------------------------
+export async function obtenerMetaMensual(empresaId: string, periodo: string) {
+  const { data, error } = await supabase
+    .from("metas_financieras")
+    .select("id, periodo, monto_meta")
+    .eq("empresa_id", empresaId)
+    .eq("periodo", periodo)
     .maybeSingle();
 
   if (error) throw error;
   return data;
 }
 
-export async function obtenerFilamentosBajoStock(empresaId: string) {
+export async function obtenerConfiguracionEmpresa(empresaId: string) {
+  const { data, error } = await supabase
+    .from("configuracion_empresa")
+    .select("*")
+    .eq("empresa_id", empresaId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function obtenerFilamentos(empresaId: string) {
   const { data, error } = await supabase
     .from("filamentos")
     .select(
       "id, marca, material, color, color_hex, stock_gramos, capacidad_rollo_gramos, umbral_bajo_stock",
     )
     .eq("empresa_id", empresaId)
-    .eq("activo", true);
+    .eq("activo", true)
+    .order("stock_gramos", { ascending: true });
 
   if (error) throw error;
   return data ?? [];

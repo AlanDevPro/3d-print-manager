@@ -19,6 +19,7 @@ export interface PiezaFormState {
   cantidad: string;
   tiempo_impresion_horas: string;
   tiempo_impresion_minutos: string;
+  foto_pieza: string;
 }
 
 export interface CotizarFormState {

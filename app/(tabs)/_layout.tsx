@@ -1,8 +1,8 @@
+//app/(tabs)/_layout.tsx
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import React from "react";
 import { ActivityIndicator, View } from "react-native";
 
 export default function TabsLayout() {

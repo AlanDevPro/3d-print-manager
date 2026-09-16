@@ -1,7 +1,9 @@
+// src/features/pedidos/components/modal/PagoSeccion.tsx
 import { Ionicons } from "@expo/vector-icons";
-import React, { useState } from "react";
+import { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Modal,
   StyleSheet,
@@ -11,7 +13,11 @@ import {
   View,
 } from "react-native";
 import { PAGO_CONFIG } from "../../constants";
-import { EstadoPago, Pedido } from "../../types";
+import {
+  confirmarEntregaPedido,
+  metodoRequiereComprobante,
+} from "../../services/pedidosService";
+import { EstadoPago, MetodoPago, Pedido } from "../../types";
 import { formatBs } from "../../utils/formato";
 import { FilaDetalle } from "./FilaDetalle";
 import { SeccionModal } from "./SeccionModal";
@@ -19,7 +25,9 @@ import { SeccionModal } from "./SeccionModal";
 interface PagoSeccionProps {
   theme: any;
   pedido: Pedido;
+  qrPagoUrl: string | null;
   onVerificarPago?: () => void;
+  onEntregaConfirmada: () => Promise<void>;
   cargandoConfirmacion?: boolean;
 }
 
@@ -32,56 +40,137 @@ const PAGO_ICONOS: Record<EstadoPago, keyof typeof Ionicons.glyphMap> = {
 export function PagoSeccion({
   theme,
   pedido,
+  qrPagoUrl,
   onVerificarPago,
+  onEntregaConfirmada,
   cargandoConfirmacion = false,
 }: PagoSeccionProps) {
   const [modalImagenVisible, setModalImagenVisible] = useState(false);
+  const [confirmando, setConfirmando] = useState(false);
 
   const imagenComprobante = pedido.pago.comprobanteUrl;
-  const saldoPendiente = Math.max(0, pedido.pago.total - pedido.pago.montoCobrado);
+  const saldoPendiente = Math.max(
+    0,
+    pedido.pago.total - pedido.pago.montoCobrado,
+  );
 
+  const esQr = pedido.pago.metodo?.toLowerCase().includes("qr");
   const esMetodoQr =
-    pedido.pago.metodo?.toLowerCase().includes("qr") ||
-    pedido.pago.metodo?.toLowerCase().includes("transferencia");
+    esQr || pedido.pago.metodo?.toLowerCase().includes("transferencia");
 
-  // Hay un pago registrado (el cliente subió comprobante o confirmó efectivo) pero
-  // aún no fue verificado por el admin: solo entonces se muestra el botón.
-  const hayPagoPendienteDeVerificar = Boolean(pedido.pago.metodo) && !pedido.pago.verificado;
+  const requiereComprobante = metodoRequiereComprobante(pedido.pago.metodo);
+  const comprobantePresente = Boolean(imagenComprobante);
+  const puedeVerificarAnticipo = !requiereComprobante || comprobantePresente;
 
-  const estadoActualConfig = PAGO_CONFIG[pedido.pago.estado] || PAGO_CONFIG.sin_pagar;
+  const estadoActualConfig =
+    PAGO_CONFIG[pedido.pago.estado] || PAGO_CONFIG.sin_pagar;
+
+  const handleConfirmarEntrega = () => {
+    Alert.alert(
+      "Confirmar pago y entrega",
+      "Esto registrará el cobro final, generará el ingreso correspondiente y marcará el pedido como entregado. ¿Continuar?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Confirmar",
+          onPress: async () => {
+            try {
+              setConfirmando(true);
+              await confirmarEntregaPedido(
+                pedido.id,
+                (pedido.pago.metodo as MetodoPago) || "efectivo",
+              );
+              await onEntregaConfirmada();
+            } catch (e: any) {
+              Alert.alert(
+                "Error",
+                e.message || "No se pudo confirmar la entrega.",
+              );
+            } finally {
+              setConfirmando(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   return (
     <SeccionModal titulo="Control de Pago" icono="card-outline" theme={theme}>
       <View
         style={[
           styles.cardContenedor,
-          { backgroundColor: theme.bgSecondary || "#F9FAFB", borderColor: theme.border || "#E5E7EB" },
+          {
+            backgroundColor: theme.bgSecondary || "#F9FAFB",
+            borderColor: theme.border || "#E5E7EB",
+          },
         ]}
       >
         <View style={styles.encabezadoRow}>
           <View style={styles.metodoInfoGroup}>
-            <View style={[styles.metodoIconoCircle, { backgroundColor: theme.primary + "15" }]}>
-              <Ionicons name={esMetodoQr ? "qr-code-outline" : "cash-outline"} size={18} color={theme.primary} />
+            <View
+              style={[
+                styles.metodoIconoCircle,
+                { backgroundColor: theme.primary + "15" },
+              ]}
+            >
+              <Ionicons
+                name={esMetodoQr ? "qr-code-outline" : "cash-outline"}
+                size={18}
+                color={theme.primary}
+              />
             </View>
             <View>
-              <Text style={[styles.metodoLabelSub, { color: theme.textSecondary }]}>Método registrado</Text>
+              <Text
+                style={[styles.metodoLabelSub, { color: theme.textSecondary }]}
+              >
+                Método registrado
+              </Text>
               <Text style={[styles.metodoNombre, { color: theme.textPrimary }]}>
-                {pedido.pago.metodo ? pedido.pago.metodo.toUpperCase() : "SIN MÉTODO"}
+                {pedido.pago.metodo
+                  ? pedido.pago.metodo.toUpperCase()
+                  : "SIN MÉTODO"}
               </Text>
             </View>
           </View>
 
-          <View style={[styles.pagoEstadoBadge, { backgroundColor: estadoActualConfig.color }]}>
-            <Ionicons name={PAGO_ICONOS[pedido.pago.estado]} size={13} color="#FFFFFF" />
-            <Text style={styles.pagoEstadoBadgeText}>{estadoActualConfig.label}</Text>
+          <View
+            style={[
+              styles.pagoEstadoBadge,
+              { backgroundColor: estadoActualConfig.color },
+            ]}
+          >
+            <Ionicons
+              name={PAGO_ICONOS[pedido.pago.estado]}
+              size={13}
+              color="#FFFFFF"
+            />
+            <Text style={styles.pagoEstadoBadgeText}>
+              {estadoActualConfig.label}
+            </Text>
           </View>
         </View>
 
-        <View style={[styles.divisor, { backgroundColor: theme.border || "#E5E7EB" }]} />
+        <View
+          style={[
+            styles.divisor,
+            { backgroundColor: theme.border || "#E5E7EB" },
+          ]}
+        />
 
         <View style={styles.desgloseContenedor}>
-          <FilaDetalle theme={theme} label="Total" valor={formatBs(pedido.pago.total)} icono="calculator-outline" />
-          <FilaDetalle theme={theme} label="Cobrado" valor={formatBs(pedido.pago.montoCobrado)} icono="wallet-outline" />
+          <FilaDetalle
+            theme={theme}
+            label="Total"
+            valor={formatBs(pedido.pago.total)}
+            icono="calculator-outline"
+          />
+          <FilaDetalle
+            theme={theme}
+            label="Cobrado"
+            valor={formatBs(pedido.pago.montoCobrado)}
+            icono="wallet-outline"
+          />
           <FilaDetalle
             theme={theme}
             label="Saldo pendiente"
@@ -91,29 +180,53 @@ export function PagoSeccion({
           />
         </View>
 
-        {esMetodoQr && (
+        {/* Comprobante adjunto cuando aún no está entregado */}
+        {esMetodoQr && pedido.estado === "pendiente" && (
           <View style={styles.seccionComprobanteWrapper}>
-            <Text style={[styles.comprobanteLabel, { color: theme.textSecondary }]}>
+            <Text
+              style={[styles.comprobanteLabel, { color: theme.textSecondary }]}
+            >
               Comprobante adjunto por el cliente
             </Text>
             <TouchableOpacity
               activeOpacity={0.85}
-              style={[styles.comprobanteBox, { backgroundColor: theme.bgPrimary || "#FFFFFF", borderColor: theme.border || "#E5E7EB" }]}
+              style={[
+                styles.comprobanteBox,
+                {
+                  backgroundColor: theme.bgPrimary || "#FFFFFF",
+                  borderColor: theme.border || "#E5E7EB",
+                },
+              ]}
               onPress={() => imagenComprobante && setModalImagenVisible(true)}
               disabled={!imagenComprobante}
             >
               {imagenComprobante ? (
                 <>
-                  <Image source={{ uri: imagenComprobante }} style={styles.comprobanteImage} resizeMode="cover" />
+                  <Image
+                    source={{ uri: imagenComprobante }}
+                    style={styles.comprobanteImage}
+                    resizeMode="cover"
+                  />
                   <View style={styles.overlayAmpliar}>
                     <Ionicons name="scan-outline" size={14} color="#FFFFFF" />
-                    <Text style={styles.overlayAmpliarText}>Tocar para ampliar</Text>
+                    <Text style={styles.overlayAmpliarText}>
+                      Tocar para ampliar
+                    </Text>
                   </View>
                 </>
               ) : (
                 <View style={styles.comprobantePlaceholder}>
-                  <Ionicons name="image-outline" size={28} color={theme.textSecondary || "#9CA3AF"} />
-                  <Text style={[styles.placeholderText, { color: theme.textSecondary }]}>
+                  <Ionicons
+                    name="image-outline"
+                    size={28}
+                    color={theme.textSecondary || "#9CA3AF"}
+                  />
+                  <Text
+                    style={[
+                      styles.placeholderText,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
                     Aún no hay comprobante del cliente
                   </Text>
                 </View>
@@ -122,52 +235,140 @@ export function PagoSeccion({
           </View>
         )}
 
-        {/* Botón de verificación: solo aparece si hay un pago pendiente de verificar */}
-        {hayPagoPendienteDeVerificar && (
-  <TouchableOpacity
-    activeOpacity={0.85}
-    disabled={cargandoConfirmacion || pedido.pago.total <= 0}
-    style={[
-      styles.confirmarBtn,
-      { backgroundColor: pedido.pago.total > 0 ? "#10B981" : "#9CA3AF" },
-      cargandoConfirmacion && { opacity: 0.7 }
-    ]}
-    onPress={onVerificarPago}
-  >
-    {cargandoConfirmacion ? (
-      <ActivityIndicator color="#FFFFFF" size="small" />
-    ) : (
-      <>
-        <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
-        <Text style={styles.confirmarBtnText}>
-          {pedido.pago.total > 0
-            ? "Verificar pago y pasar a producción"
-            : "Monto total inválido (0 Bs)"}
-        </Text>
-      </>
-    )}
-  </TouchableOpacity>
-)}
+        {/* 1. ESTADO PENDIENTE: Botón para verificar anticipo */}
+        {pedido.estado === "pendiente" &&
+          (puedeVerificarAnticipo ? (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              disabled={cargandoConfirmacion || pedido.pago.total <= 0}
+              style={[
+                styles.confirmarBtn,
+                {
+                  backgroundColor:
+                    pedido.pago.total > 0 ? "#10B981" : "#9CA3AF",
+                },
+                cargandoConfirmacion && { opacity: 0.7 },
+              ]}
+              onPress={onVerificarPago}
+            >
+              {cargandoConfirmacion ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <>
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={18}
+                    color="#FFFFFF"
+                  />
+                  <Text style={styles.confirmarBtnText}>
+                    {pedido.pago.total > 0
+                      ? "Verificar pago y pasar a producción"
+                      : "Monto total inválido (0 Bs)"}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.esperandoComprobanteBanner}>
+              <Ionicons name="hourglass-outline" size={16} color="#F59E0B" />
+              <Text style={styles.esperandoComprobanteText}>
+                Este método requiere comprobante — esperando que el cliente lo
+                suba
+              </Text>
+            </View>
+          ))}
 
-        {/* Una vez verificado, se muestra un estado final en vez del botón */}
-        {pedido.pago.verificado && (
+        {/* 2. ESTADO EN_IMPRESION: Mensaje de anticipo verificado */}
+        {pedido.estado === "en_impresion" && (
           <View style={styles.verificadoBanner}>
             <Ionicons name="shield-checkmark" size={16} color="#10B981" />
-            <Text style={styles.verificadoBannerText}>Pago verificado</Text>
+            <Text style={styles.verificadoBannerText}>
+              Pago del anticipo verificado correctamente
+            </Text>
+          </View>
+        )}
+
+        {/* 3. ESTADO LISTO: Botón confirmar pago y entrega (sin validar pago final pendiente) */}
+        {pedido.estado === "listo" && (
+          <>
+            {esQr && qrPagoUrl && (
+              <View style={styles.qrEmpresaWrapper}>
+                <Text
+                  style={[
+                    styles.comprobanteLabel,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  QR de la empresa
+                </Text>
+                <Image
+                  source={{ uri: qrPagoUrl }}
+                  style={styles.qrEmpresaImage}
+                  resizeMode="contain"
+                />
+              </View>
+            )}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              disabled={confirmando}
+              style={[
+                styles.confirmarBtn,
+                { backgroundColor: "#10B981" },
+                confirmando && { opacity: 0.7 },
+              ]}
+              onPress={handleConfirmarEntrega}
+            >
+              {confirmando ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <>
+                  <Ionicons
+                    name="checkmark-done-outline"
+                    size={18}
+                    color="#FFFFFF"
+                  />
+                  <Text style={styles.confirmarBtnText}>
+                    Confirmar pago y entrega del pedido
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </>
+        )}
+
+        {/* 4. ESTADO ENTREGADO: Mensaje de pago completo y pedido entregado */}
+        {pedido.estado === "entregado" && (
+          <View style={styles.verificadoBanner}>
+            <Ionicons name="shield-checkmark" size={16} color="#10B981" />
+            <Text style={styles.verificadoBannerText}>
+              Pago completo y pedido entregado
+            </Text>
           </View>
         )}
       </View>
 
-      <Modal visible={modalImagenVisible} transparent animationType="fade" onRequestClose={() => setModalImagenVisible(false)}>
+      <Modal
+        visible={modalImagenVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModalImagenVisible(false)}
+      >
         <TouchableWithoutFeedback onPress={() => setModalImagenVisible(false)}>
           <View style={styles.modalBg}>
-            <TouchableOpacity style={styles.modalCerrarBtn} onPress={() => setModalImagenVisible(false)}>
+            <TouchableOpacity
+              style={styles.modalCerrarBtn}
+              onPress={() => setModalImagenVisible(false)}
+            >
               <Ionicons name="close-circle" size={32} color="#FFFFFF" />
             </TouchableOpacity>
             <TouchableWithoutFeedback>
               <View style={styles.modalImagenWrapper}>
                 {imagenComprobante && (
-                  <Image source={{ uri: imagenComprobante }} style={styles.modalImagenFull} resizeMode="contain" />
+                  <Image
+                    source={{ uri: imagenComprobante }}
+                    style={styles.modalImagenFull}
+                    resizeMode="contain"
+                  />
                 )}
               </View>
             </TouchableWithoutFeedback>
@@ -179,30 +380,128 @@ export function PagoSeccion({
 }
 
 const styles = StyleSheet.create({
-  cardContenedor: { borderRadius: 16, borderWidth: 1, padding: 14, marginTop: 4 },
-  encabezadoRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  cardContenedor: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    marginTop: 4,
+  },
+  encabezadoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   metodoInfoGroup: { flexDirection: "row", alignItems: "center", gap: 10 },
-  metodoIconoCircle: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  metodoLabelSub: { fontSize: 10, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 },
+  metodoIconoCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  metodoLabelSub: {
+    fontSize: 10,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
   metodoNombre: { fontSize: 13, fontWeight: "700" },
-  pagoEstadoBadge: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+  pagoEstadoBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
   pagoEstadoBadgeText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
   divisor: { height: 1, marginVertical: 12 },
   desgloseContenedor: { gap: 4 },
   seccionComprobanteWrapper: { marginTop: 14, alignItems: "center" },
   comprobanteLabel: { fontSize: 11, fontWeight: "600", marginBottom: 8 },
-  comprobanteBox: { width: "80%", height: 140, borderRadius: 12, borderWidth: 1, overflow: "hidden", justifyContent: "center", alignItems: "center" },
+  comprobanteBox: {
+    width: "80%",
+    height: 140,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: "hidden",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   comprobanteImage: { width: "100%", height: "100%" },
-  overlayAmpliar: { position: "absolute", bottom: 6, right: 6, backgroundColor: "rgba(0,0,0,0.65)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, flexDirection: "row", alignItems: "center", gap: 4 },
+  overlayAmpliar: {
+    position: "absolute",
+    bottom: 6,
+    right: 6,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
   overlayAmpliarText: { color: "#FFFFFF", fontSize: 9.5, fontWeight: "600" },
-  comprobantePlaceholder: { alignItems: "center", justifyContent: "center", gap: 4 },
+  comprobantePlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
   placeholderText: { fontSize: 11, fontWeight: "500" },
-  confirmarBtn: { flexDirection: "row", gap: 6, borderRadius: 10, paddingVertical: 12, alignItems: "center", justifyContent: "center", marginTop: 14 },
+  qrEmpresaWrapper: { marginTop: 14, alignItems: "center" },
+  qrEmpresaImage: { width: 160, height: 160, borderRadius: 12 },
+  confirmarBtn: {
+    flexDirection: "row",
+    gap: 6,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 14,
+  },
   confirmarBtnText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
-  verificadoBanner: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: "#10B98122" },
+  esperandoComprobanteBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#FEF3C7",
+  },
+  esperandoComprobanteText: {
+    color: "#D97706",
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
+    flexShrink: 1,
+  },
+  verificadoBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#10B98122",
+  },
   verificadoBannerText: { color: "#10B981", fontSize: 13, fontWeight: "700" },
-  modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center", padding: 20 },
+  modalBg: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
   modalCerrarBtn: { position: "absolute", top: 40, right: 20, zIndex: 10 },
-  modalImagenWrapper: { width: "100%", height: "80%", justifyContent: "center", alignItems: "center" },
+  modalImagenWrapper: {
+    width: "100%",
+    height: "80%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   modalImagenFull: { width: "100%", height: "100%" },
 });
